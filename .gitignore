@@ -1,0 +1,21 @@
+# Environments and Checkpoints
+.venv/
+.ipynb_checkpoints/
+__pycache__/
+
+# Sensitive Study Data (Uploads)
+uploads/
+*.csv
+*.xlsx
+
+# Generated Artifacts (Outputs)
+outputs/
+*.png
+*.pdf
+files.zip
+
+# OpenRefine Backup Files
+*.tar.gz
+
+# Local System Files
+.DS_Store

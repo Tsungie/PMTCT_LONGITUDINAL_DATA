@@ -1,0 +1,13 @@
+# Web Framework
+streamlit
+
+# Data Manipulation
+pandas
+openpyxl
+
+# Visualizations
+matplotlib
+plotly
+
+# Interactive Tools
+mitosheet
