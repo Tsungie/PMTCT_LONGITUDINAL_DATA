@@ -4,6 +4,7 @@ streamlit
 # Data Manipulation
 pandas
 openpyxl
+numpy
 
 # Visualizations
 matplotlib
