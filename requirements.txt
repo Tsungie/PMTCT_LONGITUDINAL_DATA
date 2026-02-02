@@ -8,6 +8,7 @@ openpyxl
 # Visualizations
 matplotlib
 plotly
+seaborn
 
 # Interactive Tools
 mitosheet
