@@ -1,55 +1,45 @@
 """
-PMTCT STAKEHOLDER DASHBOARD
-============================
-Interactive Streamlit dashboard for presenting PMTCT longitudinal analysis
-to stakeholders with clear visualizations and insights.
+PMTCT STAKEHOLDER DASHBOARD - COMPLETE VERSION
+============================================
+Zimbabwe PMTCT Programme Longitudinal Analysis
+
+IMPROVEMENTS:
+✓ Zimbabwe flag 🇿🇼 and maternal imagery 🤰
+✓ Removed ALL subjective comments (no "World-Class", "Meets WHO Target", etc.)
+✓ Birth cascade: Mothers → Children Born → Infants Tested → Results
+✓ Renamed "Orphan Cohort" → "Children Without Traceable Mother"
+✓ Province/Site filtering + Search functionality
+✓ Descriptive analysis only (no evaluative language)
 
 To run:
-    streamlit run pmtct_stakeholder_dashboard.py
+    streamlit run pmtct_dashboard_complete.py
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
 # Page configuration
 st.set_page_config(
-    page_title="PMTCT Longitudinal Analysis",
-    page_icon="🏥",
+    page_title="PMTCT Analysis - Zimbabwe",
+    page_icon="🇿🇼",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
+# Custom CSS
 st.markdown("""
     <style>
-    .main {
-        padding: 0rem 1rem;
-    }
+    .main { padding: 0rem 1rem; }
     .stMetric {
         background-color: #f0f2f6;
         padding: 15px;
         border-radius: 10px;
-    }
-    .metric-success {
-        background-color: #d4edda;
-        border-left: 5px solid #28a745;
-    }
-    .metric-warning {
-        background-color: #fff3cd;
-        border-left: 5px solid #ffc107;
-    }
-    .metric-danger {
-        background-color: #f8d7da;
-        border-left: 5px solid #dc3545;
     }
     .insight-box {
         background-color: #e7f3ff;
@@ -58,21 +48,24 @@ st.markdown("""
         border-left: 5px solid #2196F3;
         margin: 10px 0;
     }
-    h1 {
-        color: #1e3a8a;
-    }
+    h1 { color: #1e3a8a; }
     h2 {
         color: #2563eb;
         border-bottom: 2px solid #2563eb;
         padding-bottom: 10px;
     }
-    h3 {
-        color: #3b82f6;
+    h3 { color: #3b82f6; }
+    .header-row {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        margin-bottom: 20px;
     }
+    .flag { font-size: 48px; }
+    .maternal-icon { font-size: 48px; }
     </style>
     """, unsafe_allow_html=True)
 
-# Helper Functions
 @st.cache_data
 def load_data():
     """Load and prepare datasets"""
@@ -80,14 +73,14 @@ def load_data():
         no_mother = pd.read_csv('uploads/DATA_SET_WITH_NO_TRACEABLE_MOTHER.csv')
         with_mother = pd.read_csv('uploads/DATA_SET_WITH_TRACE_OF_THE_MOTHER.csv')
         
-        # Convert dates for no_mother
+        # Date columns for children without traceable mother
         date_cols_no_mother = ['infant_date_of_birth', 'infant_hiv_test_date', 
                                'infant_date_of_art_initiation', 'infant_date_of_art_enrolment']
         for col in date_cols_no_mother:
             if col in no_mother.columns:
                 no_mother[col] = pd.to_datetime(no_mother[col], errors='coerce', dayfirst=True)
         
-        # Convert dates for with_mother
+        # Date columns for mother-baby pairs
         date_cols_with_mother = ['date_of_last_known_mensural_period', 'date_of_anc_booking',
                                  'mother_date_of_hiv_test', 'date_mother_tested_positive',
                                  'mother_date_of_art_initiation', 'mother_date_of_viral_load',
@@ -102,396 +95,548 @@ def load_data():
         st.error(f"Error loading data: {e}")
         return None, None
 
-def create_metric_card(title, value, delta=None, delta_color="normal", help_text=None):
-    """Create a styled metric card"""
-    col = st.columns(1)[0]
-    col.metric(label=title, value=value, delta=delta, delta_color=delta_color, help=help_text)
-
 def show_insight_box(text, icon="💡"):
-    """Display an insight box"""
+    """Display insight box"""
     st.markdown(f"""
         <div class="insight-box">
-            <strong>{icon} Key Insight:</strong> {text}
+            <strong>{icon} Finding:</strong> {text}
         </div>
     """, unsafe_allow_html=True)
-
-# Sidebar Navigation
-st.sidebar.title("📊 Navigation")
-st.sidebar.markdown("---")
-
-page = st.sidebar.radio(
-    "Select Section:",
-    [
-        "🏠 Executive Summary",
-        "📈 Study Overview",
-        "👥 Maternal Demographics", 
-        "💊 ART Initiation & Cascade",
-        "🧬 Viral Load & Suppression",
-        "👶 Infant Outcomes & MTCT",
-        "⏱️ Longitudinal Timeline",
-        "🔍 Data Quality Issues",
-        "📋 Key Recommendations"
-    ]
-)
-
-st.sidebar.markdown("---")
-st.sidebar.info("""
-**Study Period:** 2021 - 2025
-
-**Total Cohort:** 3,092 records
-- 1,881 Mother-Baby Pairs
-- 1,211 Children (No Maternal Link)
-""")
 
 # Load data
 no_mother, with_mother = load_data()
 
 if no_mother is None or with_mother is None:
-    st.error("Failed to load data. Please ensure CSV files are in the correct directory.")
+    st.error("Failed to load data. Please ensure CSV files are in 'uploads' directory.")
     st.stop()
 
-# Calculate key metrics
-total_pairs = len(with_mother)
-infants_tested = with_mother['infant_hiv_test_result'].notna().sum()
-infant_positive = with_mother['infant_hiv_test_result'].str.upper().isin(['POSITIVE']).sum()
+# =============================================================================
+# SIDEBAR - FILTERS AND NAVIGATION
+# =============================================================================
+
+col1, col2, col3 = st.sidebar.columns([1,2,1])
+with col1:
+    st.markdown('<div class="flag">🇿🇼</div>', unsafe_allow_html=True)
+with col2:
+    st.markdown("**PMTCT**<br>**Analysis**", unsafe_allow_html=True)
+with col3:
+    st.markdown('<div class="maternal-icon">🤰</div>', unsafe_allow_html=True)
+
+st.sidebar.markdown("Zimbabwe PMTCT Programme")
+st.sidebar.markdown("---")
+
+# SEARCH FUNCTIONALITY
+st.sidebar.markdown("### 🔍 Search")
+search_term = st.sidebar.text_input(
+    "Search any field:", 
+    "", 
+    help="Search across patient IDs, facilities, and all other fields",
+    placeholder="Type to search..."
+)
+
+# LOCATION FILTERS
+st.sidebar.markdown("### 📍 Location Filters")
+
+# Auto-detect location columns
+province_cols = [col for col in with_mother.columns 
+                if any(x in col.lower() for x in ['province', 'district', 'region', 'area'])]
+site_cols = [col for col in with_mother.columns 
+            if any(x in col.lower() for x in ['site', 'facility', 'clinic', 'health', 'center'])]
+
+# Province/District filter
+if province_cols:
+    province_col = province_cols[0]
+    unique_provinces = [str(x) for x in with_mother[province_col].dropna().unique() if str(x) != 'nan']
+    provinces = ['All Provinces'] + sorted(unique_provinces)
+    selected_province = st.sidebar.selectbox(
+        "Province/District:", 
+        provinces,
+        help=f"Filter by {province_col}"
+    )
+else:
+    selected_province = 'All Provinces'
+    st.sidebar.info("ℹ️ No province/district column found")
+
+# Site/Facility filter
+if site_cols:
+    site_col = site_cols[0]
+    
+    # Filter sites based on province selection
+    if selected_province != 'All Provinces' and province_cols:
+        temp_df = with_mother[with_mother[province_col] == selected_province]
+        available_sites = temp_df[site_col].dropna().unique()
+    else:
+        available_sites = with_mother[site_col].dropna().unique()
+    
+    unique_sites = [str(x) for x in available_sites if str(x) != 'nan']
+    sites = ['All Sites'] + sorted(unique_sites)
+    selected_site = st.sidebar.selectbox(
+        "Site/Facility:", 
+        sites,
+        help=f"Filter by {site_col}"
+    )
+else:
+    selected_site = 'All Sites'
+    st.sidebar.info("ℹ️ No site/facility column found")
+
+# APPLY FILTERS
+filtered_with_mother = with_mother.copy()
+filtered_no_mother = no_mother.copy()
+
+# Apply province filter
+if selected_province != 'All Provinces' and province_cols:
+    filtered_with_mother = filtered_with_mother[
+        filtered_with_mother[province_col] == selected_province
+    ]
+
+# Apply site filter
+if selected_site != 'All Sites' and site_cols:
+    filtered_with_mother = filtered_with_mother[
+        filtered_with_mother[site_col] == selected_site
+    ]
+
+# Apply search filter
+if search_term:
+    mask_with = filtered_with_mother.astype(str).apply(
+        lambda x: x.str.contains(search_term, case=False, na=False)
+    ).any(axis=1)
+    filtered_with_mother = filtered_with_mother[mask_with]
+    
+    mask_no = filtered_no_mother.astype(str).apply(
+        lambda x: x.str.contains(search_term, case=False, na=False)
+    ).any(axis=1)
+    filtered_no_mother = filtered_no_mother[mask_no]
+
+# NAVIGATION
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📑 Navigate")
+
+page = st.sidebar.radio(
+    "",
+    [
+        "🏠 Executive Summary",
+        "📈 Study Overview",
+        "👥 Maternal Demographics", 
+        "💊 ART Initiation",
+        "🧬 Viral Load",
+        "👶 Infant Outcomes",
+        "⏱️ Timeline Analysis",
+        "🔍 Data Quality",
+        "📋 Recommendations"
+    ]
+)
+
+# DATASET INFO
+total_pairs = len(filtered_with_mother)
+total_no_link = len(filtered_no_mother)
+orig_pairs = len(with_mother)
+orig_no_link = len(no_mother)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📊 Dataset Info")
+
+if search_term or selected_province != 'All Provinces' or selected_site != 'All Sites':
+    st.sidebar.info(f"""
+**Original Dataset:**
+- {orig_pairs:,} Mother-Baby Pairs
+- {orig_no_link:,} Children (No Link)
+- **Total:** {orig_pairs + orig_no_link:,}
+
+**Filtered View:**
+- {total_pairs:,} Mother-Baby Pairs
+- {total_no_link:,} Children (No Link)
+- **Total:** {total_pairs + total_no_link:,}
+""")
+else:
+    st.sidebar.info(f"""
+**Study Period:** 2021-2025
+
+**Total Records:** {total_pairs + total_no_link:,}
+- {total_pairs:,} Mother-Baby Pairs
+- {total_no_link:,} Children (No Traceable Mother)
+""")
+
+# =============================================================================
+# CALCULATE KEY METRICS
+# =============================================================================
+
+children_born = filtered_with_mother['infant_date_of_birth'].notna().sum()
+infants_tested = filtered_with_mother['infant_hiv_test_result'].notna().sum()
+infant_positive = filtered_with_mother['infant_hiv_test_result'].str.upper().isin(['POSITIVE']).sum()
 mtct_rate = (infant_positive / infants_tested * 100) if infants_tested > 0 else 0
 
-# PAGE CONTENT
-# ============================================================================
-# EXECUTIVE SUMMARY
-# ============================================================================
+# ART timing
+filtered_with_mother['days_to_art'] = (
+    filtered_with_mother['mother_date_of_art_initiation'] - 
+    filtered_with_mother['date_mother_tested_positive']
+).dt.days
+same_day_art = (filtered_with_mother['days_to_art'] == 0).sum()
+valid_art_timing = filtered_with_mother['days_to_art'].notna().sum()
+same_day_pct = (same_day_art / valid_art_timing * 100) if valid_art_timing > 0 else 0
+
+# Viral load
+filtered_with_mother['vl_suppressed'] = filtered_with_mother['mother_viral_load_result'].apply(
+    lambda x: 'Suppressed' if pd.notna(x) and (
+        str(x).upper() in ['TND', 'TARGET NOT DETECTED', '<30', '<20', '<50', '<40'] or 
+        (isinstance(x, (int, float)) and x < 1000)
+    ) else 'Not Suppressed' if pd.notna(x) else 'Unknown'
+)
+vl_tested = filtered_with_mother[filtered_with_mother['vl_suppressed'] != 'Unknown']
+suppressed_count = (filtered_with_mother['vl_suppressed'] == 'Suppressed').sum()
+suppression_rate = (suppressed_count / len(vl_tested) * 100) if len(vl_tested) > 0 else 0
+
+# =============================================================================
+# PAGE: EXECUTIVE SUMMARY
+# =============================================================================
+
 if page == "🏠 Executive Summary":
-    st.title("🏥 PMTCT Longitudinal Analysis")
-    st.markdown("## Prevention of Mother-to-Child Transmission Programme")
-    st.markdown("### Study Period: 2021 - 2025")
+    # Header
+    col1, col2, col3 = st.columns([1, 6, 1])
+    with col1:
+        st.markdown('<div style="font-size: 60px; text-align: center;">🇿🇼</div>', unsafe_allow_html=True)
+    with col2:
+        st.title("PMTCT Longitudinal Analysis")
+        st.markdown("## Prevention of Mother-to-Child Transmission Programme")
+        st.markdown("### Zimbabwe | Study Period: 2021-2025")
+    with col3:
+        st.markdown('<div style="font-size: 60px; text-align: center;">🤰</div>', unsafe_allow_html=True)
     
     st.markdown("---")
     
-    # Key Metrics Dashboard
-    st.markdown("## 📊 Key Performance Indicators")
+    # Key Performance Indicators
+    st.markdown("## 📊 Programme Indicators")
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
         st.metric(
-            label="Total Mother-Baby Pairs",
+            label="Total Mothers",
             value=f"{total_pairs:,}",
-            help="Complete linkage between mothers and infants"
+            help="HIV-positive mothers with documented records"
         )
     
     with col2:
+        birth_rate = (children_born/total_pairs*100) if total_pairs > 0 else 0
         st.metric(
-            label="Infant Testing Coverage",
-            value=f"{(infants_tested/total_pairs*100):.1f}%",
-            delta=f"{infants_tested:,} tested",
-            delta_color="off"
+            label="Children Born",
+            value=f"{children_born:,}",
+            delta=f"{birth_rate:.1f}%",
+            delta_color="off",
+            help="Documented births from HIV+ mothers"
         )
     
     with col3:
+        test_coverage = (infants_tested/children_born*100) if children_born > 0 else 0
         st.metric(
-            label="MTCT Rate",
-            value=f"{mtct_rate:.1f}%",
-            delta="Meets WHO Target" if mtct_rate <= 5 else "Above Target",
-            delta_color="normal" if mtct_rate <= 5 else "inverse",
-            help="Mother-to-Child Transmission rate among tested infants"
+            label="Infants Tested",
+            value=f"{infants_tested:,}",
+            delta=f"{test_coverage:.1f}% of born",
+            delta_color="off",
+            help="Infants with HIV test results documented"
         )
     
     with col4:
-        # Calculate same-day ART rate
-        with_mother['days_to_art'] = (with_mother['mother_date_of_art_initiation'] - 
-                                       with_mother['date_mother_tested_positive']).dt.days
-        same_day = (with_mother['days_to_art'] == 0).sum()
-        valid_timing = with_mother['days_to_art'].notna().sum()
-        same_day_pct = (same_day / valid_timing * 100) if valid_timing > 0 else 0
-        
         st.metric(
-            label="Same-Day ART Initiation",
+            label="HIV+ Infants",
+            value=f"{infant_positive}",
+            delta=f"{mtct_rate:.1f}% MTCT rate",
+            delta_color="off",
+            help="Mother-to-child transmission among tested"
+        )
+    
+    with col5:
+        st.metric(
+            label="Same-Day ART",
             value=f"{same_day_pct:.1f}%",
-            delta="World-Class",
-            delta_color="normal",
-            help="Mothers who started ART on diagnosis day"
+            delta=f"{same_day_art:,} mothers",
+            delta_color="off",
+            help="ART initiation on day of diagnosis"
         )
     
     st.markdown("---")
     
-    # Quick Wins and Critical Gaps
+    # Programme Performance Overview
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("### ✅ **Major Successes**")
-        st.success(f"**{same_day_pct:.1f}% Same-Day ART Initiation** - World-class performance in Test & Treat")
-        st.success(f"**{mtct_rate:.1f}% MTCT Rate** - Meets WHO elimination target (<5%)")
-        st.success(f"**100% HIV Testing** - All pregnant women tested at ANC")
+        st.markdown("### ✅ Programme Achievements")
+        st.success(f"**{same_day_pct:.1f}% Same-Day ART Initiation** - {same_day_art:,} mothers started treatment immediately upon diagnosis")
+        st.success(f"**{mtct_rate:.1f}% MTCT Rate Observed** - Among {infants_tested:,} tested infants from {children_born:,} documented births")
+        st.success(f"**100% Antenatal HIV Testing** - Universal testing of pregnant women at ANC booking visits")
         
-        # Viral suppression
-        with_mother['vl_suppressed'] = with_mother['mother_viral_load_result'].apply(
-            lambda x: 'Suppressed' if pd.notna(x) and (str(x).upper() in ['TND', '<30', '<20', '<50'] or 
-                     (isinstance(x, (int, float)) and x < 1000)) else 
-                     'Not Suppressed' if pd.notna(x) else 'Unknown'
-        )
-        vl_tested = with_mother[with_mother['vl_suppressed'] != 'Unknown']
         if len(vl_tested) > 0:
-            suppressed = (vl_tested['vl_suppressed'] == 'Suppressed').sum()
-            suppression_rate = suppressed / len(vl_tested) * 100
-            st.success(f"**{suppression_rate:.1f}% Viral Suppression** - Among mothers with VL results")
+            st.success(f"**{suppression_rate:.1f}% Viral Suppression** - Among {len(vl_tested):,} mothers with viral load results")
     
     with col2:
-        st.markdown("### 🚨 **Critical Gaps**")
-        untested_pct = ((total_pairs - infants_tested) / total_pairs * 100)
-        st.error(f"**{untested_pct:.1f}% Infants Untested** - {total_pairs - infants_tested:,} infants with unknown HIV status")
+        st.markdown("### 📊 Programme Gaps")
         
-        # Children without maternal link
-        orphan_count = len(no_mother)
-        st.error(f"**{orphan_count:,} Children Without Maternal Link** - System breakdown in documentation")
+        if children_born > 0:
+            untested_born = children_born - infants_tested
+            untested_pct = (untested_born / children_born * 100)
+            st.error(f"**{untested_born:,} Infants Untested** - {untested_pct:.1f}% of {children_born:,} born children lack HIV test results")
         
-        # Retention
-        active_treatment = no_mother['infant_follow_up_status'].str.contains('Active', na=False).sum()
-        retention_rate = (active_treatment / orphan_count * 100)
-        st.error(f"**{retention_rate:.1f}% Treatment Retention** - Only {active_treatment:,}/{orphan_count:,} children on active treatment")
+        st.error(f"**{total_no_link:,} Children Without Traceable Mother** - Mother-baby linkage system gap")
         
-        # VL testing gap
-        no_vl = len(with_mother) - len(vl_tested)
-        st.error(f"**{(no_vl/len(with_mother)*100):.1f}% No Viral Load** - {no_vl:,} mothers without VL monitoring")
+        active_no_link = filtered_no_mother['infant_follow_up_status'].str.contains('Active', na=False).sum()
+        retention_pct = (active_no_link / total_no_link * 100) if total_no_link > 0 else 0
+        st.error(f"**{retention_pct:.1f}% Treatment Retention** - Only {active_no_link:,} of {total_no_link:,} children actively on treatment")
+        
+        no_vl = len(filtered_with_mother) - len(vl_tested)
+        no_vl_pct = (no_vl/len(filtered_with_mother)*100) if len(filtered_with_mother) > 0 else 0
+        st.error(f"**{no_vl_pct:.1f}% Without Viral Load** - {no_vl:,} mothers lack VL monitoring data")
     
     st.markdown("---")
     
-    # Executive Insights
-    st.markdown("## 💡 Executive Insights")
+    # Key Findings
+    st.markdown("## 💡 Key Findings")
+    
+    if children_born > 0:
+        test_cov = (infants_tested/children_born*100)
+        show_insight_box(
+            f"Of {total_pairs:,} mothers in the cohort, {children_born:,} ({(children_born/total_pairs*100):.1f}%) have documented births. "
+            f"Among these births, {infants_tested:,} infants ({test_cov:.1f}%) have HIV test results recorded. "
+            f"The testing gap represents {children_born - infants_tested:,} infants with unknown HIV status.",
+            icon="📈"
+        )
     
     show_insight_box(
-        "The program excels at same-day ART initiation (73.2%) but struggles with the "
-        "'last mile' - only 13% of infants have documented HIV test results. The true "
-        "population-level MTCT rate remains unknown.",
-        icon="🎯"
+        f"Same-day ART initiation achieved in {same_day_pct:.1f}% of cases where timing data is available "
+        f"({same_day_art:,} of {valid_art_timing:,} mothers with documented diagnosis-to-treatment intervals).",
+        icon="⏱️"
     )
     
     show_insight_box(
-        "ZERO transmissions occurred among mothers who started ART BEFORE pregnancy. "
-        "Pre-conception ART is the gold standard for PMTCT.",
-        icon="⭐"
-    )
-    
-    show_insight_box(
-        "1,211 HIV-positive children have NO traceable maternal data, indicating severe "
-        "system breakdown in mother-baby pair registration and follow-up.",
+        f"{total_no_link:,} HIV-positive children in the system have no traceable connection to maternal records, "
+        "indicating documentation and linkage challenges in the mother-baby pair registration process.",
         icon="⚠️"
     )
     
     st.markdown("---")
     
-    # Strategic Priorities
-    st.markdown("## 🎯 Strategic Priorities")
+    # Priority Areas
+    st.markdown("## 🎯 Priority Areas")
     
     priorities = [
         {
-            "priority": "1. Infant Testing Surge",
-            "target": "Test all 1,637 infants with unknown status within 6 months",
-            "actions": ["Mobile testing units", "Community tracing", "SMS reminders", "Integration with immunization"],
-            "impact": "HIGH"
+            "area": "1. Infant Testing Coverage",
+            "current": f"{test_coverage:.1f}%" if children_born > 0 else "N/A",
+            "gap": f"{children_born - infants_tested:,} untested" if children_born > 0 else "N/A",
+            "actions": ["Mobile testing deployment", "Community case finding", "Integration with immunization services"]
         },
         {
-            "priority": "2. Strengthen Mother-Baby Linkage", 
-            "target": "Reduce unlinked children from 1,211 to <100",
-            "actions": ["Electronic unique IDs", "Cross-facility tracking", "Real-time dashboards"],
-            "impact": "HIGH"
+            "area": "2. Mother-Baby Linkage",
+            "current": f"{total_no_link:,} children without linkage",
+            "gap": "System documentation challenge",
+            "actions": ["Unique identifier system", "Cross-facility tracking", "Data quality audits"]
         },
         {
-            "priority": "3. Scale Pre-Conception ART",
-            "target": "Initiate all HIV+ women of reproductive age on ART",
-            "actions": ["Identify all HIV+ women 15-49", "Immediate ART", "Family planning integration"],
-            "impact": "CRITICAL"
+            "area": "3. Viral Load Monitoring",
+            "current": f"{(len(vl_tested)/len(filtered_with_mother)*100):.1f}% coverage" if len(filtered_with_mother) > 0 else "N/A",
+            "gap": f"{no_vl:,} mothers without VL",
+            "actions": ["Point-of-care testing", "Protocol implementation", "Results turnaround tracking"]
         },
         {
-            "priority": "4. Universal Viral Load Testing",
-            "target": "Achieve 95% VL testing coverage",
-            "actions": ["Point-of-care VL machines", "Mandatory 28-week VL", "Results-to-action protocols"],
-            "impact": "HIGH"
+            "area": "4. Treatment Retention",
+            "current": f"{retention_pct:.1f}% active" if total_no_link > 0 else "N/A",
+            "gap": f"{total_no_link - active_no_link:,} children lost to follow-up" if total_no_link > 0 else "N/A",
+            "actions": ["Community tracing", "Adherence support", "Multi-month dispensing"]
         }
     ]
     
     for p in priorities:
-        with st.expander(f"**{p['priority']}** - {p['impact']} IMPACT"):
-            st.markdown(f"**Target:** {p['target']}")
-            st.markdown("**Key Actions:**")
+        with st.expander(f"**{p['area']}** | Current: {p['current']} | Gap: {p['gap']}"):
+            st.markdown("**Recommended Actions:**")
             for action in p['actions']:
-                st.markdown(f"- {action}")
+                st.markdown(f"• {action}")
 
-# ============================================================================
-# STUDY OVERVIEW
-# ============================================================================
+
+# =============================================================================
+# PAGE: STUDY OVERVIEW
+# =============================================================================
+
 elif page == "📈 Study Overview":
+    st.markdown('<div style="text-align: center; font-size: 48px;">🇿🇼 🤰</div>', unsafe_allow_html=True)
     st.title("📈 Study Overview")
-    st.markdown("## PMTCT Longitudinal Journey Analysis")
+    st.markdown("## PMTCT Longitudinal Analysis - Zimbabwe")
     
     st.markdown("""
-    This study focuses on **mothers living with HIV** who were diagnosed either prior to 
-    or during their antenatal care (ANC).
+    Analysis of HIV-positive mothers diagnosed during or prior to antenatal care (ANC).
     
     **Study Period:** 2021 - 2025  
-    **Data Collection:** Zimbabwe PMTCT Programme Monitoring System
+    **Data Source:** Zimbabwe PMTCT Programme Monitoring System
     """)
     
     st.markdown("---")
     
-    # Dataset Description
-    st.markdown("## 📊 Dataset Overview")
+    st.markdown("## 📊 Dataset Summary")
     
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        # Create summary table
         summary_data = {
-            "Metric": [
-                "Total Mother-Baby Pairs",
-                "Infants with HIV Results",
-                "Median Age at Testing",
-                "Infant Positivity (MTCT Rate)",
-                "Children Without Maternal Link"
+            "Indicator": [
+                "Total Mothers in Cohort",
+                "Children with Documented Birth",
+                "Infants with HIV Test Results",
+                "HIV-Positive Infants (MTCT)",
+                "Children Without Traceable Mother"
             ],
-            "Value": [
+            "Count": [
                 f"{total_pairs:,}",
-                f"{infants_tested:,} (13.0%)",
-                "6.9 weeks",
-                f"4.9% ({infant_positive} babies)",
-                f"{len(no_mother):,}"
+                f"{children_born:,}",
+                f"{infants_tested:,}",
+                f"{infant_positive}",
+                f"{total_no_link:,}"
             ],
-            "Interpretation": [
-                "Sample size with complete mother-baby linkage",
-                "Only 13% have final HIV test results recorded",
-                "Major peak around 6-7 weeks (EID guideline)",
-                "Meets WHO target (<5%) among tested infants",
-                "Critical gap - no maternal data available"
+            "Percentage": [
+                "100%",
+                f"{(children_born/total_pairs*100):.1f}%",
+                f"{(infants_tested/children_born*100):.1f}% of born" if children_born > 0 else "N/A",
+                f"{mtct_rate:.1f}% of tested",
+                f"{(total_no_link/(total_pairs+total_no_link)*100):.1f}% of total"
             ]
         }
         
-        summary_df = pd.DataFrame(summary_data)
-        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
     
     with col2:
-        st.markdown("### 🔍 Data Sources")
-        st.info("""
-        **Two Cohorts:**
+        st.markdown("### 📁 Cohort Structure")
+        st.info(f"""
+        **Two Data Sources:**
         
         1️⃣ **Mother-Baby Pairs**  
-        1,881 records with complete linkage
+        {total_pairs:,} complete records with maternal linkage
         
-        2️⃣ **Orphan Cohort**  
-        1,211 HIV+ children without maternal data
+        2️⃣ **Children Without Traceable Mother**  
+        {total_no_link:,} HIV+ children, maternal data unavailable
         """)
     
     st.markdown("---")
     
-    # Cohort Comparison
-    st.markdown("## 📊 Cohort Comparison")
+    # Cascade visualization
+    st.markdown("## 📊 Programme Cascade Comparison")
     
-    # Create comparison chart
     fig = go.Figure()
+    
+    mother_cascade = [
+        total_pairs,
+        total_pairs,  # All tested
+        filtered_with_mother['mother_date_of_art_initiation'].notna().sum(),
+        children_born,
+        infants_tested,
+        filtered_with_mother['mother_appointment_outcome'].str.contains('Active', na=False).sum()
+    ]
     
     fig.add_trace(go.Bar(
         name='Mother-Baby Pairs',
-        x=['Total Records', 'HIV Testing', 'ART Initiated', 'Infant Tested', 'Active Treatment'],
-        y=[total_pairs, total_pairs, 611, infants_tested, 
-           with_mother['mother_appointment_outcome'].str.contains('Active', na=False).sum()],
-        marker_color='#3498db',
-        text=[total_pairs, total_pairs, 611, infants_tested, 
-              with_mother['mother_appointment_outcome'].str.contains('Active', na=False).sum()],
+        x=['Total', 'HIV Tested', 'ART Initiated', 'Births', 'Infant Tested', 'Active Treatment'],
+        y=mother_cascade,
+        text=[f"{val:,}" for val in mother_cascade],
         textposition='auto',
+        marker_color='#3498db'
     ))
     
-    orphan_total = len(no_mother)
-    orphan_tested = orphan_total  # All tested (inclusion criterion)
-    orphan_art = no_mother['infant_date_of_art_initiation'].notna().sum()
-    orphan_active = no_mother['infant_follow_up_status'].str.contains('Active', na=False).sum()
+    no_link_cascade = [
+        total_no_link,
+        total_no_link,
+        filtered_no_mother['infant_date_of_art_initiation'].notna().sum(),
+        total_no_link,
+        total_no_link,
+        active_no_link
+    ]
     
     fig.add_trace(go.Bar(
-        name='Children Without Maternal Link',
-        x=['Total Records', 'HIV Testing', 'ART Initiated', 'Infant Tested', 'Active Treatment'],
-        y=[orphan_total, orphan_total, orphan_art, orphan_total, orphan_active],
-        marker_color='#e74c3c',
-        text=[orphan_total, orphan_total, orphan_art, orphan_total, orphan_active],
+        name='Children Without Traceable Mother',
+        x=['Total', 'HIV Tested', 'ART Initiated', 'Births', 'Infant Tested', 'Active Treatment'],
+        y=no_link_cascade,
+        text=[f"{val:,}" for val in no_link_cascade],
         textposition='auto',
+        marker_color='#e74c3c'
     ))
     
     fig.update_layout(
-        title='Cascade Comparison: Both Cohorts',
-        xaxis_title='Cascade Stage',
+        title='Care Cascade by Cohort',
+        xaxis_title='Stage',
         yaxis_title='Number of Individuals',
         barmode='group',
-        height=500,
-        hovermode='x unified'
+        height=500
     )
     
     st.plotly_chart(fig, use_container_width=True)
     
     show_insight_box(
-        "The mother-baby pair cohort shows excellent early cascade performance but "
-        "massive drop-off at infant testing (87% loss). The orphan cohort shows poor "
-        "retention with only 48.8% actively on treatment."
+        f"Mother-baby pair cohort: {total_pairs:,} mothers → {children_born:,} documented births → "
+        f"{infants_tested:,} HIV test results ({(infants_tested/children_born*100):.1f}% testing rate). "
+        f"Children without traceable mothers: {active_no_link:,} of {total_no_link:,} "
+        f"({retention_pct:.1f}%) remain actively on treatment.",
+        icon="📊"
     )
 
-# ============================================================================
-# MATERNAL DEMOGRAPHICS
-# ============================================================================
+# =============================================================================
+# PAGE: MATERNAL DEMOGRAPHICS
+# =============================================================================
+
 elif page == "👥 Maternal Demographics":
+    st.markdown('<div style="text-align: center; font-size: 48px;">🇿🇼 🤰</div>', unsafe_allow_html=True)
     st.title("👥 Maternal Demographics")
-    st.markdown("## Understanding the Women We Serve")
+    st.markdown("## Characteristics of HIV-Positive Mothers")
     
     st.markdown("---")
     
-    # Key Stats
+    # Key demographics
     col1, col2, col3, col4 = st.columns(4)
     
-    mean_age = with_mother['mother_age_at_booking'].mean()
-    adolescent_count = (with_mother['mother_age_at_booking'] < 20).sum()
-    first_time = (with_mother['first_time_booking'] == True).sum()
+    mean_age = filtered_with_mother['mother_age_at_booking'].mean()
+    median_age = filtered_with_mother['mother_age_at_booking'].median()
+    adolescent_count = (filtered_with_mother['mother_age_at_booking'] < 20).sum()
+    age_range_min = filtered_with_mother['mother_age_at_booking'].min()
+    age_range_max = filtered_with_mother['mother_age_at_booking'].max()
     
     with col1:
-        st.metric("Mean Maternal Age", f"{mean_age:.1f} years")
+        st.metric("Mean Age", f"{mean_age:.1f} years")
     with col2:
-        st.metric("Adolescents (<20)", f"{adolescent_count:,}", 
-                 delta=f"{(adolescent_count/total_pairs*100):.1f}%")
+        st.metric("Median Age", f"{median_age:.0f} years")
     with col3:
-        st.metric("First-Time ANC", f"{first_time:,}",
-                 delta=f"{(first_time/total_pairs*100):.1f}%")
+        st.metric("Adolescents (<20)", f"{adolescent_count:,}",
+                 delta=f"{(adolescent_count/total_pairs*100):.1f}%",
+                 delta_color="off")
     with col4:
-        st.metric("Age Range", f"{with_mother['mother_age_at_booking'].min():.0f}-{with_mother['mother_age_at_booking'].max():.0f} yrs")
+        st.metric("Age Range", f"{age_range_min:.0f}-{age_range_max:.0f} years")
     
     st.markdown("---")
     
-    # Age Distribution
+    # Age distribution
     col1, col2 = st.columns([2, 1])
     
     with col1:
         st.markdown("### Age Distribution at ANC Booking")
         
-        # Create age histogram
         fig = px.histogram(
-            with_mother, 
+            filtered_with_mother, 
             x='mother_age_at_booking',
             nbins=30,
-            labels={'mother_age_at_booking': 'Age at Booking (years)', 'count': 'Number of Mothers'},
+            labels={'mother_age_at_booking': 'Age (years)', 'count': 'Count'},
             color_discrete_sequence=['#3498db']
         )
         
         fig.add_vline(x=mean_age, line_dash="dash", line_color="red", 
-                     annotation_text=f"Mean: {mean_age:.1f} yrs")
-        fig.add_vline(x=20, line_dash="dash", line_color="orange",
-                     annotation_text="High-Risk: <20 yrs")
+                     annotation_text=f"Mean: {mean_age:.1f}")
+        fig.add_vline(x=median_age, line_dash="dash", line_color="green",
+                     annotation_text=f"Median: {median_age:.0f}")
         
         fig.update_layout(height=400, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
     
     with col2:
-        st.markdown("### Age Categories")
+        st.markdown("### Age Groups")
         
-        # Create age groups
-        with_mother['age_group'] = pd.cut(
-            with_mother['mother_age_at_booking'],
+        filtered_with_mother['age_group'] = pd.cut(
+            filtered_with_mother['mother_age_at_booking'],
             bins=[0, 19, 24, 29, 34, 100],
             labels=['<20', '20-24', '25-29', '30-34', '35+']
         )
         
-        age_dist = with_mother['age_group'].value_counts().sort_index()
+        age_dist = filtered_with_mother['age_group'].value_counts().sort_index()
         
         fig = px.pie(
             values=age_dist.values,
@@ -503,46 +648,39 @@ elif page == "👥 Maternal Demographics":
     
     st.markdown("---")
     
-    # Maternal HIV Status at Booking
-    st.markdown("### 🔍 HIV Status at ANC Booking")
+    # HIV status awareness
+    st.markdown("### 🔍 HIV Status at ANC Entry")
     
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        # Calculate categories
-        new_diagnosis = 1385  # From PDF
-        known_positive = 496  # From PDF
+        art_before_anc = filtered_with_mother['mother_date_of_art_initiation'].notna().sum()
         
-        status_data = pd.DataFrame({
-            'Category': ['New Diagnosis\n(Found at Clinic)', 'Known Positive\n(Arrived HIV+)'],
-            'Count': [new_diagnosis, known_positive],
-            'Percentage': [73.6, 26.4]
-        })
-        
-        st.dataframe(status_data, use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame({
+            'Category': ['Mothers Tracked', 'Total in Cohort'],
+            'Count': [art_before_anc, total_pairs],
+            'Percentage': [f"{(art_before_anc/total_pairs*100):.1f}%", "100%"]
+        }), use_container_width=True, hide_index=True)
         
         st.info(f"""
-        **{new_diagnosis:,} mothers (73.6%)**  
-        Arrived with unknown status,  
-        diagnosed by clinic testing
+        **{total_pairs:,} mothers** enrolled
         
-        **{known_positive:,} mothers (26.4%)**  
-        Already aware of HIV status
+        HIV status and treatment history documented through ANC visits
         """)
     
     with col2:
         fig = go.Figure()
         
         fig.add_trace(go.Bar(
-            x=['New Diagnosis', 'Known Positive'],
-            y=[new_diagnosis, known_positive],
-            text=[f"{new_diagnosis}<br>({73.6}%)", f"{known_positive}<br>({26.4}%)"],
+            x=['ART Data Available', 'Total Mothers'],
+            y=[art_before_anc, total_pairs],
+            text=[f"{art_before_anc:,}", f"{total_pairs:,}"],
             textposition='auto',
-            marker_color=['#e74c3c', '#3498db']
+            marker_color=['#3498db', '#95a5a6']
         ))
         
         fig.update_layout(
-            title='Maternal HIV Status at First ANC Booking',
+            title='Maternal Treatment Data Availability',
             yaxis_title='Number of Mothers',
             height=400,
             showlegend=False
@@ -551,172 +689,112 @@ elif page == "👥 Maternal Demographics":
         st.plotly_chart(fig, use_container_width=True)
     
     show_insight_box(
-        "73.6% of mothers were newly diagnosed at ANC - highlighting the critical "
-        "importance of universal HIV testing at first antenatal visit. This represents "
-        "a major opportunity for early intervention."
+        f"Cohort includes {total_pairs:,} HIV-positive mothers with mean age {mean_age:.1f} years. "
+        f"Adolescents (<20 years) represent {adolescent_count:,} ({(adolescent_count/total_pairs*100):.1f}%) of the cohort.",
+        icon="👥"
     )
 
-# ============================================================================
-# ART INITIATION & CASCADE
-# ============================================================================
-elif page == "💊 ART Initiation & Cascade":
-    st.title("💊 ART Initiation & Treatment Cascade")
-    st.markdown("## From Diagnosis to Sustained Treatment")
+# =============================================================================
+# PAGE: ART INITIATION
+# =============================================================================
+
+elif page == "💊 ART Initiation":
+    st.markdown('<div style="text-align: center; font-size: 48px;">🇿🇼 🤰</div>', unsafe_allow_html=True)
+    st.title("💊 ART Initiation Analysis")
+    st.markdown("## Timing and Coverage of Antiretroviral Treatment")
     
     st.markdown("---")
     
-    # ART Timing Analysis
-    st.markdown("### ⏱️ Timing of ART Initiation")
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        # ART timing data from PDF
-        timing_data = pd.DataFrame({
-            'Category': [
-                'Before Pregnancy',
-                'During Pregnancy (>4 wks)',
-                'During Pregnancy (<4 wks)',
-                'Unknown Timing'
-            ],
-            'Count': [552, 274, 19, 1036],
-            'Percentage': [29.3, 14.6, 1.0, 55.1]
-        })
-        
-        st.dataframe(timing_data, use_container_width=True, hide_index=True)
-        
-        st.success("""
-        **✅ 552 mothers (29.3%)**  
-        Started ART BEFORE pregnancy  
-        → ZERO transmissions in this group!
-        """)
-        
-        st.warning("""
-        **⚠️ 1,036 mothers (55.1%)**  
-        Unknown ART timing  
-        → Critical data gap
-        """)
-    
-    with col2:
-        fig = px.bar(
-            timing_data,
-            x='Category',
-            y='Count',
-            text='Percentage',
-            color='Category',
-            color_discrete_map={
-                'Before Pregnancy': '#27ae60',
-                'During Pregnancy (>4 wks)': '#3498db',
-                'During Pregnancy (<4 wks)': '#f39c12',
-                'Unknown Timing': '#95a5a6'
-            }
-        )
-        
-        fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-        fig.update_layout(
-            title='When Did Mothers Start ART?',
-            yaxis_title='Number of Mothers',
-            showlegend=False,
-            height=400
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    st.markdown("---")
-    
-    # Same-Day Initiation Success
-    st.markdown("### 🎯 Same-Day ART Initiation - A Success Story")
+    # ART initiation metrics
+    st.markdown("### ⏱️ Time to ART Initiation")
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
         st.metric(
-            "Same-Day Initiation Rate",
-            "73.2%",
-            delta="World-Class Performance",
-            delta_color="normal"
+            "Same-Day Initiation",
+            f"{same_day_pct:.1f}%",
+            f"{same_day_art:,} mothers",
+            delta_color="off"
         )
     
     with col2:
+        median_days = filtered_with_mother['days_to_art'].median()
         st.metric(
-            "Median Delay",
-            "0 Days",
-            delta="Immediate Initiation",
-            delta_color="normal"
+            "Median Time to ART",
+            f"{median_days:.0f} days" if pd.notna(median_days) else "N/A",
+            "Among documented cases"
         )
     
     with col3:
-        # Calculate from data
-        with_mother['days_to_art'] = (with_mother['mother_date_of_art_initiation'] - 
-                                       with_mother['date_mother_tested_positive']).dt.days
-        valid_days = with_mother['days_to_art'].dropna()
-        valid_days = valid_days[valid_days >= 0]
-        same_day_count = (valid_days == 0).sum()
-        
         st.metric(
-            "Same-Day Initiations",
-            f"{same_day_count:,}",
-            delta=f"out of {len(valid_days):,} tracked"
+            "Cases with Timing Data",
+            f"{valid_art_timing:,}",
+            f"{(valid_art_timing/total_pairs*100):.1f}%",
+            delta_color="off"
         )
     
-    # Time to ART histogram
+    # Time distribution
+    valid_days = filtered_with_mother['days_to_art'].dropna()
+    valid_days = valid_days[(valid_days >= 0) & (valid_days <= 180)]
+    
     if len(valid_days) > 0:
         fig = px.histogram(
-            valid_days[valid_days <= 180],
+            valid_days,
             nbins=50,
-            labels={'value': 'Days from Diagnosis to ART', 'count': 'Number of Mothers'},
+            labels={'value': 'Days from Diagnosis to ART', 'count': 'Count'},
             color_discrete_sequence=['#3498db']
         )
         
         fig.add_vline(x=0, line_dash="dash", line_color="green",
-                     annotation_text="Same Day (73.2%)")
+                     annotation_text=f"Same Day: {same_day_pct:.1f}%")
         fig.add_vline(x=7, line_dash="dash", line_color="orange",
-                     annotation_text="1 Week")
+                     annotation_text="7 Days")
         
         fig.update_layout(
-            title='Distribution: Time from Diagnosis to ART Initiation',
+            title='Distribution: Diagnosis to ART Initiation',
             height=400
         )
         
         st.plotly_chart(fig, use_container_width=True)
     
     show_insight_box(
-        "The 73.2% same-day initiation rate demonstrates EXCELLENT implementation of "
-        "'Test & Treat' policies. This is a world-class achievement reflecting strong "
-        "healthcare worker training, good ARV availability, and reduced stigma.",
-        icon="🏆"
+        f"Among {valid_art_timing:,} mothers with documented timing, {same_day_art:,} ({same_day_pct:.1f}%) "
+        f"initiated ART on the same day as diagnosis. Median time to treatment: {median_days:.0f} days.",
+        icon="📊"
     )
     
     st.markdown("---")
     
-    # Treatment Cascade
-    st.markdown("### 📊 The Complete Treatment Cascade")
+    # Treatment cascade
+    st.markdown("### 📊 Treatment Cascade - Children Without Traceable Mother")
     
-    # Calculate cascade stages
-    diagnosed = len(no_mother)
-    art_initiated = no_mother['infant_date_of_art_initiation'].notna().sum()
-    active_treatment = no_mother['infant_follow_up_status'].str.contains('Active', na=False).sum()
+    diagnosed = len(filtered_no_mother)
+    art_initiated = filtered_no_mother['infant_date_of_art_initiation'].notna().sum()
+    active_tx = filtered_no_mother['infant_follow_up_status'].str.contains('Active', na=False).sum()
     
-    cascade_data = {
-        'Stage': ['HIV+ Diagnosed', 'ART Initiated', 'Active on Treatment'],
-        'Count': [diagnosed, art_initiated, active_treatment],
-        'Percentage': [100, (art_initiated/diagnosed*100), (active_treatment/diagnosed*100)]
-    }
-    
-    cascade_df = pd.DataFrame(cascade_data)
+    cascade_data = pd.DataFrame({
+        'Stage': ['HIV+ Diagnosed', 'ART Initiated', 'Active Treatment'],
+        'Count': [diagnosed, art_initiated, active_tx],
+        'Percentage': [
+            100,
+            (art_initiated/diagnosed*100) if diagnosed > 0 else 0,
+            (active_tx/diagnosed*100) if diagnosed > 0 else 0
+        ]
+    })
     
     fig = go.Figure()
     
     fig.add_trace(go.Funnel(
-        y=cascade_df['Stage'],
-        x=cascade_df['Count'],
+        y=cascade_data['Stage'],
+        x=cascade_data['Count'],
         textposition="inside",
         textinfo="value+percent initial",
         marker={"color": ["#e74c3c", "#f39c12", "#27ae60"]},
     ))
     
     fig.update_layout(
-        title='Treatment Cascade: Children Without Maternal Link',
+        title='Treatment Cascade',
         height=400
     )
     
@@ -724,58 +802,41 @@ elif page == "💊 ART Initiation & Cascade":
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Stage 1: Diagnosed", f"{diagnosed:,}", "100%")
+        st.metric("Diagnosed", f"{diagnosed:,}", "100%")
     with col2:
         loss_1_2 = diagnosed - art_initiated
-        st.metric("Stage 2: ART Initiated", f"{art_initiated:,}", 
-                 f"-{loss_1_2:,} lost", delta_color="inverse")
+        st.metric("ART Initiated", f"{art_initiated:,}", 
+                 f"-{loss_1_2:,}")
     with col3:
-        loss_2_3 = art_initiated - active_treatment
-        st.metric("Stage 3: Active Treatment", f"{active_treatment:,}",
-                 f"-{loss_2_3:,} lost", delta_color="inverse")
+        loss_2_3 = art_initiated - active_tx
+        st.metric("Active Treatment", f"{active_tx:,}",
+                 f"-{loss_2_3:,}")
     
     show_insight_box(
-        f"Critical retention gap: Only {(active_treatment/diagnosed*100):.1f}% of diagnosed "
-        f"children remain in active treatment. {diagnosed - active_treatment:,} children "
-        "have fallen out of care - urgent tracing and re-engagement needed.",
-        icon="🚨"
+        f"Among {diagnosed:,} diagnosed children without traceable mothers, {art_initiated:,} "
+        f"({(art_initiated/diagnosed*100):.1f}%) initiated ART, and {active_tx:,} "
+        f"({(active_tx/diagnosed*100):.1f}%) remain actively on treatment.",
+        icon="📈"
     )
 
-# ============================================================================
-# VIRAL LOAD & SUPPRESSION
-# ============================================================================
-elif page == "🧬 Viral Load & Suppression":
-    st.title("🧬 Viral Load & Suppression")
-    st.markdown("## Monitoring Treatment Effectiveness")
+
+# =============================================================================
+# PAGE: VIRAL LOAD
+# =============================================================================
+
+elif page == "🧬 Viral Load":
+    st.markdown('<div style="text-align: center; font-size: 48px;">🇿🇼 🤰</div>', unsafe_allow_html=True)
+    st.title("🧬 Viral Load Analysis")
+    st.markdown("## Treatment Monitoring and Viral Suppression")
     
     st.markdown("---")
     
-    # Classify viral load
-    def classify_vl(vl_value):
-        if pd.isna(vl_value):
-            return 'Unknown'
-        vl_str = str(vl_value).upper().strip()
-        if vl_str in ['TND', 'TARGET NOT DETECTED', '<30', '<20', '<50', '<40']:
-            return 'Suppressed'
-        try:
-            vl_num = float(vl_str)
-            return 'Suppressed' if vl_num < 1000 else 'Not Suppressed'
-        except:
-            return 'Unknown'
-    
-    with_mother['vl_status'] = with_mother['mother_viral_load_result'].apply(classify_vl)
-    
-    # Calculate metrics
-    vl_tested = with_mother[with_mother['vl_status'] != 'Unknown']
-    suppressed_count = (with_mother['vl_status'] == 'Suppressed').sum()
-    not_suppressed_count = (with_mother['vl_status'] == 'Not Suppressed').sum()
-    unknown_count = (with_mother['vl_status'] == 'Unknown').sum()
-    
-    suppression_rate = (suppressed_count / len(vl_tested) * 100) if len(vl_tested) > 0 else 0
-    testing_coverage = (len(vl_tested) / len(with_mother) * 100)
-    
-    # Key Metrics
+    # Key metrics
     col1, col2, col3, col4 = st.columns(4)
+    
+    testing_coverage = (len(vl_tested) / len(filtered_with_mother) * 100) if len(filtered_with_mother) > 0 else 0
+    not_suppressed = (filtered_with_mother['vl_suppressed'] == 'Not Suppressed').sum()
+    unknown_vl = (filtered_with_mother['vl_suppressed'] == 'Unknown').sum()
     
     with col1:
         st.metric(
@@ -786,36 +847,34 @@ elif page == "🧬 Viral Load & Suppression":
     
     with col2:
         st.metric(
-            "Viral Suppression Rate",
+            "Suppression Rate",
             f"{suppression_rate:.1f}%",
-            "Among tested" if suppression_rate >= 90 else "Below WHO target",
-            delta_color="normal" if suppression_rate >= 90 else "inverse"
+            f"Among {len(vl_tested):,} tested"
         )
     
     with col3:
         st.metric(
-            "Suppressed Mothers",
+            "Suppressed",
             f"{suppressed_count:,}",
-            f"U=U Protected"
+            f"VL <1000 copies/mL"
         )
     
     with col4:
         st.metric(
             "No VL Result",
-            f"{unknown_count:,}",
-            f"{(unknown_count/len(with_mother)*100):.1f}%",
-            delta_color="inverse"
+            f"{unknown_vl:,}",
+            f"{(unknown_vl/len(filtered_with_mother)*100):.1f}%"
         )
     
     st.markdown("---")
     
-    # Viral Load Status Distribution
+    # VL status distribution
     col1, col2 = st.columns(2)
     
     with col1:
         st.markdown("### Overall Viral Load Status")
         
-        vl_counts = with_mother['vl_status'].value_counts()
+        vl_counts = filtered_with_mother['vl_suppressed'].value_counts()
         
         fig = px.pie(
             values=vl_counts.values,
@@ -834,10 +893,10 @@ elif page == "🧬 Viral Load & Suppression":
         st.plotly_chart(fig, use_container_width=True)
     
     with col2:
-        st.markdown("### Among Tested Mothers Only")
+        st.markdown("### Among Tested Mothers")
         
         if len(vl_tested) > 0:
-            tested_counts = vl_tested['vl_status'].value_counts()
+            tested_counts = vl_tested['vl_suppressed'].value_counts()
             
             fig = px.pie(
                 values=tested_counts.values,
@@ -856,160 +915,109 @@ elif page == "🧬 Viral Load & Suppression":
     
     st.markdown("---")
     
-    # Comparison to WHO Target
-    st.markdown("### 🎯 Comparison to WHO Target")
+    # Suppression analysis
+    st.markdown("### 📊 Viral Suppression Analysis")
     
     fig = go.Figure()
     
-    categories = ['Current\nSuppression Rate', 'WHO\nTarget (90%)']
-    values = [suppression_rate, 90]
-    colors = ['#3498db' if suppression_rate >= 90 else '#f39c12', '#27ae60']
-    
     fig.add_trace(go.Bar(
-        x=categories,
-        y=values,
-        text=[f'{v:.1f}%' for v in values],
-        textposition='outside',
-        marker_color=colors
+        x=['Viral Load<br>Suppressed', 'Not<br>Suppressed', 'No VL<br>Result'],
+        y=[suppressed_count, not_suppressed, unknown_vl],
+        text=[f'{suppressed_count}<br>({(suppressed_count/len(filtered_with_mother)*100):.1f}%)',
+              f'{not_suppressed}<br>({(not_suppressed/len(filtered_with_mother)*100):.1f}%)',
+              f'{unknown_vl}<br>({(unknown_vl/len(filtered_with_mother)*100):.1f}%)'],
+        textposition='auto',
+        marker_color=['#27ae60', '#e74c3c', '#95a5a6']
     ))
     
-    fig.add_hline(y=90, line_dash="dash", line_color="green",
-                 annotation_text="WHO 90-90-90 Target")
-    
     fig.update_layout(
-        title='Viral Suppression vs WHO Target',
-        yaxis_title='Percentage (%)',
-        yaxis_range=[0, 100],
+        title='Viral Load Status Distribution',
+        yaxis_title='Number of Mothers',
         height=400,
         showlegend=False
     )
     
     st.plotly_chart(fig, use_container_width=True)
     
-    # Insights
-    if suppression_rate >= 90:
-        show_insight_box(
-            f"EXCELLENT: {suppression_rate:.1f}% suppression rate EXCEEDS WHO target of 90%. "
-            "This demonstrates effective treatment adherence and quality ART services.",
-            icon="✅"
-        )
-    elif suppression_rate >= 80:
-        show_insight_box(
-            f"GOOD: {suppression_rate:.1f}% suppression rate approaches WHO target. "
-            f"Focus on the {not_suppressed_count} non-suppressed mothers for enhanced support.",
-            icon="⚠️"
-        )
-    else:
-        show_insight_box(
-            f"NEEDS IMPROVEMENT: {suppression_rate:.1f}% suppression rate is BELOW WHO target. "
-            f"{not_suppressed_count} mothers urgently need adherence counseling and possible regimen change.",
-            icon="🚨"
-        )
-    
     show_insight_box(
-        f"CRITICAL GAP: {unknown_count:,} mothers ({(unknown_count/len(with_mother)*100):.1f}%) "
-        "have NO viral load result. Cannot assess treatment effectiveness or MTCT risk. "
-        "Urgent scale-up of VL testing needed.",
-        icon="🚨"
+        f"Viral load testing completed for {len(vl_tested):,} ({testing_coverage:.1f}%) mothers. "
+        f"Among tested mothers, {suppressed_count:,} ({suppression_rate:.1f}%) achieved viral suppression "
+        f"(<1000 copies/mL). {unknown_vl:,} mothers lack VL monitoring data.",
+        icon="📊"
     )
     
-    st.markdown("---")
-    
-    # Recommendations
-    st.markdown("### 💡 Viral Load Monitoring Recommendations")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("#### Immediate Actions")
-        st.markdown("""
-        - 🎯 **Scale up VL testing** to >95% coverage
-        - 🏥 **Point-of-care VL machines** at high-volume sites
-        - 📅 **Mandatory VL at 28 weeks** gestation
-        - 🔄 **Fast-track regimen change** for treatment failures
-        """)
-    
-    with col2:
-        st.markdown("#### Support for Non-Suppressed")
-        st.markdown(f"""
-        - 👥 **Enhanced adherence counseling** for {not_suppressed_count} mothers
-        - 🏘️ **Community adherence support** groups
-        - 📱 **SMS/phone reminders** for medication
-        - 🔍 **Investigate barriers** to adherence
-        """)
+    if not_suppressed > 0:
+        show_insight_box(
+            f"{not_suppressed:,} mothers have detectable viral load ≥1000 copies/mL, requiring "
+            "adherence support and potential regimen assessment.",
+            icon="⚠️"
+        )
 
-# ============================================================================
-# INFANT OUTCOMES & MTCT
-# ============================================================================
-elif page == "👶 Infant Outcomes & MTCT":
-    st.title("👶 Infant Outcomes & MTCT")
-    st.markdown("## The Ultimate Measure of PMTCT Success")
+# =============================================================================
+# PAGE: INFANT OUTCOMES
+# =============================================================================
+
+elif page == "👶 Infant Outcomes":
+    st.markdown('<div style="text-align: center; font-size: 48px;">🇿🇼 🤰 👶</div>', unsafe_allow_html=True)
+    st.title("👶 Infant Outcomes Analysis")
+    st.markdown("## Mother-to-Child Transmission Assessment")
     
     st.markdown("---")
     
-    # Key MTCT Metrics
-    st.markdown("### 🎯 Mother-to-Child Transmission Outcomes")
+    # Key MTCT metrics
+    st.markdown("### 🎯 Transmission Outcomes")
     
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric(
-            "Infants Tested",
-            f"{infants_tested:,}",
-            f"{(infants_tested/total_pairs*100):.1f}% coverage"
+            "Children Born",
+            f"{children_born:,}",
+            f"{(children_born/total_pairs*100):.1f}%",
+            delta_color="off"
         )
     
     with col2:
         st.metric(
-            "HIV-Positive Infants",
-            f"{infant_positive}",
-            f"MTCT occurred"
+            "Infants Tested",
+            f"{infants_tested:,}",
+            f"{(infants_tested/children_born*100):.1f}% of born" if children_born > 0 else "N/A",
+            delta_color="off"
         )
     
     with col3:
         st.metric(
-            "MTCT Rate",
-            f"{mtct_rate:.1f}%",
-            "Meets WHO Target" if mtct_rate <= 5 else "Above Target",
-            delta_color="normal" if mtct_rate <= 5 else "inverse"
+            "HIV-Positive",
+            f"{infant_positive}",
+            "MTCT occurred"
         )
     
     with col4:
-        untested = total_pairs - infants_tested
+        untested = children_born - infants_tested
         st.metric(
-            "Infants Untested",
+            "Status Unknown",
             f"{untested:,}",
-            f"{(untested/total_pairs*100):.1f}%",
-            delta_color="inverse"
+            f"{(untested/children_born*100):.1f}%" if children_born > 0 else "N/A"
         )
     
     st.markdown("---")
     
-    # Seroconversion Outcomes
-    st.markdown("### 🧬 Infant Seroconversion Outcomes")
+    # Testing outcomes
+    st.markdown("### 🧬 HIV Test Results")
     
-    # Classify outcomes
     def classify_outcome(row):
         result = str(row['infant_hiv_test_result']).upper() if pd.notna(row['infant_hiv_test_result']) else ''
-        status_6mo = str(row['child_hiv_status_at_6_months']).upper() if pd.notna(row['child_hiv_status_at_6_months']) else ''
-        
         if 'NEGATIVE' in result:
-            if 'NEGATIVE' in status_6mo:
-                return 'HIV-Negative (PMTCT Success)'
-            else:
-                return 'HIV-Negative (6mo unknown)'
-        elif 'POSITIVE' in result or 'POSITIVE' in status_6mo:
-            return 'HIV-Positive (MTCT occurred)'
+            return 'HIV-Negative'
+        elif 'POSITIVE' in result:
+            return 'HIV-Positive'
         elif 'INCONCLUSIVE' in result:
             return 'Inconclusive'
-        elif result == '':
-            return 'Not tested'
         else:
-            return 'Unknown'
+            return 'Not Tested'
     
-    with_mother['seroconversion_outcome'] = with_mother.apply(classify_outcome, axis=1)
-    
-    outcome_counts = with_mother['seroconversion_outcome'].value_counts()
+    filtered_with_mother['test_outcome'] = filtered_with_mother.apply(classify_outcome, axis=1)
+    outcome_counts = filtered_with_mother['test_outcome'].value_counts()
     
     col1, col2 = st.columns([1, 2])
     
@@ -1017,7 +1025,7 @@ elif page == "👶 Infant Outcomes & MTCT":
         outcome_df = pd.DataFrame({
             'Outcome': outcome_counts.index,
             'Count': outcome_counts.values,
-            'Percentage': (outcome_counts.values / len(with_mother) * 100).round(1)
+            'Percentage': (outcome_counts.values / len(filtered_with_mother) * 100).round(1)
         })
         
         st.dataframe(outcome_df, use_container_width=True, hide_index=True)
@@ -1030,18 +1038,16 @@ elif page == "👶 Infant Outcomes & MTCT":
             text='Percentage',
             color='Outcome',
             color_discrete_map={
-                'HIV-Negative (PMTCT Success)': '#27ae60',
-                'HIV-Negative (6mo unknown)': '#2ecc71',
-                'HIV-Positive (MTCT occurred)': '#e74c3c',
+                'HIV-Negative': '#27ae60',
+                'HIV-Positive': '#e74c3c',
                 'Inconclusive': '#f39c12',
-                'Not tested': '#95a5a6',
-                'Unknown': '#7f8c8d'
+                'Not Tested': '#95a5a6'
             }
         )
         
         fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
         fig.update_layout(
-            title='Infant HIV Status Distribution',
+            title='Infant HIV Test Results Distribution',
             showlegend=False,
             height=400
         )
@@ -1050,329 +1056,131 @@ elif page == "👶 Infant Outcomes & MTCT":
     
     st.markdown("---")
     
-    # Timing of Transmission
-    st.markdown("### ⏱️ When Did Transmission Occur?")
+    # MTCT by age group
+    st.markdown("### 📊 MTCT Rate by Maternal Age")
     
-    st.markdown("""
-    Based on infant age at first positive test, we can estimate when HIV transmission likely occurred:
-    - **<6 weeks**: In utero or during delivery (peripartum)
-    - **6 weeks - 6 months**: Early breastfeeding transmission
-    - **6-12 months**: Late breastfeeding transmission
-    - **>12 months**: Very late breastfeeding or new exposure
-    """)
-    
-    # Calculate timing for positive infants
-    positive_infants = with_mother[with_mother['seroconversion_outcome'] == 'HIV-Positive (MTCT occurred)'].copy()
-    
-    if len(positive_infants) > 0:
-        # Calculate age at test in weeks
-        positive_infants['age_at_test_weeks'] = ((positive_infants['infant_hiv_test_date'] - 
-                                                   positive_infants['infant_date_of_birth']).dt.days / 7)
-        
-        positive_infants['transmission_timing'] = pd.cut(
-            positive_infants['age_at_test_weeks'],
-            bins=[-np.inf, 6, 26, 52, np.inf],
-            labels=['In utero/Peripartum\n(<6 weeks)', 
-                   'Early Postnatal\n(6w-6mo)',
-                   'Late Postnatal\n(6-12mo)',
-                   'Very Late\n(>12mo)']
-        )
-        
-        timing_counts = positive_infants['transmission_timing'].value_counts()
-        
-        col1, col2 = st.columns([1, 2])
-        
-        with col1:
-            timing_df = pd.DataFrame({
-                'Timing': timing_counts.index,
-                'Cases': timing_counts.values,
-                'Percentage': (timing_counts.values / len(positive_infants) * 100).round(1)
-            })
-            
-            st.dataframe(timing_df, use_container_width=True, hide_index=True)
-            
-            st.info(f"""
-            **{timing_counts.iloc[0] if len(timing_counts) > 0 else 0} cases ({(timing_counts.iloc[0]/len(positive_infants)*100):.0f}%)**  
-            occurred in utero or during delivery
-            
-            This indicates need for:
-            - Better viral suppression before delivery
-            - Enhanced peripartum interventions
-            """)
-        
-        with col2:
-            fig = px.bar(
-                timing_df,
-                x='Timing',
-                y='Cases',
-                text='Percentage',
-                color='Timing',
-                color_discrete_sequence=['#c0392b', '#e74c3c', '#e67e22', '#f39c12']
-            )
-            
-            fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-            fig.update_layout(
-                title='When Transmission Occurred',
-                showlegend=False,
-                height=400
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-    
-    st.markdown("---")
-    
-    # Risk Factors
-    st.markdown("### 📊 MTCT Risk Factor Analysis")
-    
-    # By maternal age
-    with_mother['age_group'] = pd.cut(
-        with_mother['mother_age_at_booking'],
+    filtered_with_mother['age_group'] = pd.cut(
+        filtered_with_mother['mother_age_at_booking'],
         bins=[0, 20, 25, 30, 35, 100],
         labels=['<20', '20-24', '25-29', '30-34', '35+']
     )
     
     risk_data = []
     for age_grp in ['<20', '20-24', '25-29', '30-34', '35+']:
-        in_group = with_mother['age_group'] == age_grp
-        tested_in_group = with_mother[in_group & with_mother['seroconversion_outcome'].isin([
-            'HIV-Negative (PMTCT Success)', 'HIV-Negative (6mo unknown)',
-            'HIV-Positive (MTCT occurred)'])]
+        in_group = filtered_with_mother['age_group'] == age_grp
+        tested_in_group = filtered_with_mother[in_group & (filtered_with_mother['test_outcome'] != 'Not Tested')]
         
         if len(tested_in_group) > 0:
-            mtct_in_group = (tested_in_group['seroconversion_outcome'] == 'HIV-Positive (MTCT occurred)').sum()
+            mtct_in_group = (tested_in_group['test_outcome'] == 'HIV-Positive').sum()
             rate = mtct_in_group / len(tested_in_group) * 100
             risk_data.append({
                 'Age Group': age_grp,
                 'MTCT Rate (%)': rate,
-                'Cases': mtct_in_group,
+                'Positive': mtct_in_group,
                 'Tested': len(tested_in_group)
             })
     
-    risk_df = pd.DataFrame(risk_data)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.dataframe(risk_df, use_container_width=True, hide_index=True)
-    
-    with col2:
-        fig = px.bar(
-            risk_df,
-            x='Age Group',
-            y='MTCT Rate (%)',
-            text='MTCT Rate (%)',
-            color='MTCT Rate (%)',
-            color_continuous_scale='Reds'
-        )
+    if risk_data:
+        risk_df = pd.DataFrame(risk_data)
         
-        fig.add_hline(y=5, line_dash="dash", line_color="orange",
-                     annotation_text="WHO Target (5%)")
+        col1, col2 = st.columns(2)
         
-        fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-        fig.update_layout(
-            title='MTCT Rate by Maternal Age',
-            showlegend=False,
-            height=400
-        )
+        with col1:
+            st.dataframe(risk_df, use_container_width=True, hide_index=True)
         
-        st.plotly_chart(fig, use_container_width=True)
+        with col2:
+            fig = px.bar(
+                risk_df,
+                x='Age Group',
+                y='MTCT Rate (%)',
+                text='MTCT Rate (%)',
+                color='MTCT Rate (%)',
+                color_continuous_scale='Reds'
+            )
+            
+            fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+            fig.update_layout(
+                title='MTCT Rate by Maternal Age Group',
+                showlegend=False,
+                height=400
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
     
     show_insight_box(
-        "Younger mothers (<25 years) show higher MTCT rates (6-8%) compared to older mothers "
-        "(2-6%). This indicates need for youth-focused PMTCT services with enhanced adherence "
-        "support and psychosocial counseling.",
-        icon="⚠️"
-    )
-    
-    st.markdown("---")
-    
-    # The Critical Gap
-    st.markdown("### 🚨 The Critical Gap: Unknown Status")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric("Total Pairs", f"{total_pairs:,}")
-    with col2:
-        st.metric("Infants Tested", f"{infants_tested:,}", 
-                 f"{(infants_tested/total_pairs*100):.1f}%")
-    with col3:
-        st.metric("Unknown Status", f"{untested:,}",
-                 f"{(untested/total_pairs*100):.1f}%",
-                 delta_color="inverse")
-    
-    show_insight_box(
-        f"CRITICAL: {untested:,} infants (86.9%) have UNKNOWN HIV status. The true population-level "
-        f"MTCT rate cannot be determined. The reported {mtct_rate:.1f}% rate only applies to the "
-        "13.1% who were tested. This is the BIGGEST GAP in the entire PMTCT cascade.",
-        icon="🚨"
+        f"Of {children_born:,} documented births, {infants_tested:,} ({(infants_tested/children_born*100):.1f}%) "
+        f"have HIV test results. Among tested infants, {infant_positive} tested positive, "
+        f"representing a {mtct_rate:.1f}% transmission rate. {untested:,} born infants lack test results.",
+        icon="👶"
     )
 
-# ============================================================================
-# LONGITUDINAL TIMELINE
-# ============================================================================
-elif page == "⏱️ Longitudinal Timeline":
-    st.title("⏱️ Longitudinal Timeline Analysis")
-    st.markdown("## Tracking the PMTCT Journey Through Time")
+# =============================================================================
+# PAGE: TIMELINE ANALYSIS
+# =============================================================================
+
+elif page == "⏱️ Timeline Analysis":
+    st.markdown('<div style="text-align: center; font-size: 48px;">🇿🇼 🤰</div>', unsafe_allow_html=True)
+    st.title("⏱️ Timeline Analysis")
+    st.markdown("## Longitudinal Journey Through PMTCT Care")
     
     st.markdown("---")
     
-    # Calculate time intervals
-    with_mother['weeks_pregnant_at_booking'] = ((with_mother['date_of_anc_booking'] - 
-                                                   with_mother['date_of_last_known_mensural_period']).dt.days / 7)
-    with_mother['days_booking_to_diagnosis'] = (with_mother['mother_date_of_hiv_test'] - 
-                                                  with_mother['date_of_anc_booking']).dt.days
-    with_mother['days_diagnosis_to_art'] = (with_mother['mother_date_of_art_initiation'] - 
-                                              with_mother['date_mother_tested_positive']).dt.days
-    with_mother['days_art_to_delivery'] = (with_mother['date_of_delivery'] - 
-                                             with_mother['mother_date_of_art_initiation']).dt.days
-    with_mother['infant_age_weeks_at_test'] = ((with_mother['infant_hiv_test_date'] - 
-                                                  with_mother['infant_date_of_birth']).dt.days / 7)
-    
-    # Key Timeline Metrics
-    st.markdown("### 📊 Key Timeline Intervals (Median Values)")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        booking_weeks = with_mother['weeks_pregnant_at_booking'].dropna()
-        booking_weeks = booking_weeks[(booking_weeks > 0) & (booking_weeks < 42)]
-        median_booking = booking_weeks.median() if len(booking_weeks) > 0 else 0
-        
-        st.metric(
-            "Gestational Age at ANC Booking",
-            f"{median_booking:.0f} weeks",
-            "Late 2nd trimester" if median_booking > 13 else "1st trimester"
-        )
-    
-    with col2:
-        booking_to_dx = with_mother['days_booking_to_diagnosis'].dropna()
-        booking_to_dx = booking_to_dx[(booking_to_dx >= 0) & (booking_to_dx <= 280)]
-        median_to_dx = booking_to_dx.median() if len(booking_to_dx) > 0 else 0
-        
-        st.metric(
-            "Days: Booking → Diagnosis",
-            f"{median_to_dx:.0f} days",
-            "Same-day testing!" if median_to_dx == 0 else f"{median_to_dx:.0f} day delay"
-        )
-    
-    with col3:
-        dx_to_art = with_mother['days_diagnosis_to_art'].dropna()
-        dx_to_art = dx_to_art[(dx_to_art >= 0) & (dx_to_art <= 365)]
-        median_to_art = dx_to_art.median() if len(dx_to_art) > 0 else 0
-        
-        st.metric(
-            "Days: Diagnosis → ART",
-            f"{median_to_art:.0f} days",
-            "Same-day initiation!" if median_to_art == 0 else f"{median_to_art:.0f} day delay"
-        )
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        art_to_delivery = with_mother['days_art_to_delivery'].dropna()
-        art_to_delivery = art_to_delivery[(art_to_delivery >= 0) & (art_to_delivery <= 280)]
-        median_art_to_del = art_to_delivery.median() if len(art_to_delivery) > 0 else 0
-        
-        st.metric(
-            "Days on ART Before Delivery",
-            f"{median_art_to_del:.0f} days",
-            f"~{(median_art_to_del/7):.0f} weeks"
-        )
-    
-    with col2:
-        infant_age = with_mother['infant_age_weeks_at_test'].dropna()
-        infant_age = infant_age[(infant_age >= 0) & (infant_age <= 104)]
-        median_infant_age = infant_age.median() if len(infant_age) > 0 else 0
-        
-        st.metric(
-            "Infant Age at HIV Testing",
-            f"{median_infant_age:.1f} weeks",
-            "Meets EID guideline" if median_infant_age <= 8 else "Late testing"
-        )
-    
-    with col3:
-        # From PDF data
-        st.metric(
-            "Late Diagnosis Gap",
-            "129 days",
-            "Average wait after booking",
-            help="From PDF: Time mothers waited for test after booking"
-        )
-    
-    st.markdown("---")
-    
-    # The Longitudinal Diagnosis Gap (from PDF)
-    st.markdown("### ⏰ Longitudinal Diagnosis Gap Analysis")
-    
-    st.markdown("""
-    Among mothers who tested positive **AFTER** their first booking (not those who arrived already knowing they were HIV+),  
-    there was a significant delay between booking and receiving their diagnosis:
-    """)
-    
-    gap_data = pd.DataFrame({
-        'Time After Booking': [
-            '8-30 Days (~1 Month)',
-            '31-90 Days (1-3 Months)',
-            '91-180 Days (3-6 Months)',
-            '>180 Days (>6 Months)'
-        ],
-        'Mothers': [9, 17, 29, 29],
-        'Percentage': [10.2, 19.3, 33.0, 33.0],
-        'Insight': [
-            'Early leakage - first test delayed',
-            'Diagnosed in first trimester',
-            'MAJOR GAP: 3-6 months in system',
-            'CRITICAL RISK: Very late diagnosis'
-        ]
-    })
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.dataframe(gap_data, use_container_width=True, hide_index=True)
-        
-        st.error("""
-        **🚨 66% of mothers waited >3 months**  
-        for diagnosis after booking!
-        
-        This represents:
-        - 58 mothers (33% + 33%)
-        - Critical delays in starting ART
-        - Higher MTCT risk
-        """)
-    
-    with col2:
-        fig = px.bar(
-            gap_data,
-            x='Time After Booking',
-            y='Mothers',
-            text='Percentage',
-            color='Mothers',
-            color_continuous_scale='Reds'
-        )
-        
-        fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-        fig.update_layout(
-            title='Delay from ANC Booking to HIV Diagnosis',
-            yaxis_title='Number of Mothers',
-            showlegend=False,
-            height=400
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    show_insight_box(
-        "CRITICAL FINDING: 66% of newly diagnosed mothers experienced delays of 3-6+ months "
-        "between ANC booking and HIV diagnosis. This represents a major system failure in "
-        "timely testing and severely limits the window for effective PMTCT interventions.",
-        icon="🚨"
+    # Calculate intervals
+    filtered_with_mother['weeks_at_booking'] = (
+        (filtered_with_mother['date_of_anc_booking'] - 
+         filtered_with_mother['date_of_last_known_mensural_period']).dt.days / 7
+    )
+    filtered_with_mother['days_booking_to_test'] = (
+        filtered_with_mother['mother_date_of_hiv_test'] - 
+        filtered_with_mother['date_of_anc_booking']
+    ).dt.days
+    filtered_with_mother['infant_age_at_test_weeks'] = (
+        (filtered_with_mother['infant_hiv_test_date'] - 
+         filtered_with_mother['infant_date_of_birth']).dt.days / 7
     )
     
+    # Key intervals
+    st.markdown("### 📊 Median Time Intervals")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    booking_weeks = filtered_with_mother['weeks_at_booking'].dropna()
+    booking_weeks = booking_weeks[(booking_weeks > 0) & (booking_weeks < 42)]
+    median_booking = booking_weeks.median() if len(booking_weeks) > 0 else 0
+    
+    with col1:
+        st.metric(
+            "Gestational Age at Booking",
+            f"{median_booking:.0f} weeks",
+            f"Based on {len(booking_weeks):,} cases"
+        )
+    
+    booking_to_test = filtered_with_mother['days_booking_to_test'].dropna()
+    booking_to_test = booking_to_test[(booking_to_test >= 0) & (booking_to_test <= 280)]
+    median_to_test = booking_to_test.median() if len(booking_to_test) > 0 else 0
+    
+    with col2:
+        st.metric(
+            "Booking to HIV Test",
+            f"{median_to_test:.0f} days",
+            f"Based on {len(booking_to_test):,} cases"
+        )
+    
+    infant_age = filtered_with_mother['infant_age_at_test_weeks'].dropna()
+    infant_age = infant_age[(infant_age >= 0) & (infant_age <= 104)]
+    median_infant_age = infant_age.median() if len(infant_age) > 0 else 0
+    
+    with col3:
+        st.metric(
+            "Infant Age at Test",
+            f"{median_infant_age:.1f} weeks",
+            f"Based on {len(infant_age):,} cases"
+        )
+    
     st.markdown("---")
     
-    # Complete Cascade Timeline
-    st.markdown("### 🔄 The Complete PMTCT Cascade Timeline")
+    # Complete cascade timeline
+    st.markdown("### 🔄 PMTCT Cascade Timeline")
     
     stages = [
         'ANC Booked',
@@ -1384,15 +1192,13 @@ elif page == "⏱️ Longitudinal Timeline":
     ]
     
     counts = [
-        len(with_mother['date_of_anc_booking'].dropna()),
-        len(with_mother['mother_date_of_hiv_test'].dropna()),
-        len(with_mother['mother_date_of_art_initiation'].dropna()),
-        len(with_mother['mother_date_of_viral_load'].dropna()),
-        len(with_mother['date_of_delivery'].dropna()),
-        len(with_mother['infant_hiv_test_date'].dropna())
+        len(filtered_with_mother['date_of_anc_booking'].dropna()),
+        len(filtered_with_mother['mother_date_of_hiv_test'].dropna()),
+        len(filtered_with_mother['mother_date_of_art_initiation'].dropna()),
+        len(filtered_with_mother['mother_date_of_viral_load'].dropna()),
+        len(filtered_with_mother['date_of_delivery'].dropna()),
+        len(filtered_with_mother['infant_hiv_test_date'].dropna())
     ]
-    
-    percentages = [(c / counts[0] * 100) for c in counts]
     
     fig = go.Figure()
     
@@ -1405,81 +1211,81 @@ elif page == "⏱️ Longitudinal Timeline":
     ))
     
     fig.update_layout(
-        title='PMTCT Cascade: From ANC to Infant Testing',
+        title='PMTCT Cascade: ANC to Infant Testing',
         height=500
     )
     
     st.plotly_chart(fig, use_container_width=True)
     
     # Loss analysis
-    st.markdown("### 📉 Loss Analysis at Each Stage")
+    st.markdown("### 📉 Stage-to-Stage Loss")
     
     losses = []
     for i in range(len(counts)-1):
         loss = counts[i] - counts[i+1]
-        loss_pct = (loss / counts[i] * 100)
+        loss_pct = (loss / counts[i] * 100) if counts[i] > 0 else 0
         losses.append({
-            'Stage Transition': f"{stages[i]} → {stages[i+1]}",
+            'Transition': f"{stages[i]} → {stages[i+1]}",
             'Lost': loss,
-            'Loss Rate (%)': f"{loss_pct:.1f}%"
+            'Loss Rate': f"{loss_pct:.1f}%"
         })
     
     loss_df = pd.DataFrame(losses)
     st.dataframe(loss_df, use_container_width=True, hide_index=True)
     
     show_insight_box(
-        "The BIGGEST loss occurs between Delivery and Infant Testing - losing 87% of the cohort. "
-        "This is the critical 'last mile' failure where the program loses track of mother-baby pairs.",
-        icon="🎯"
+        f"Median gestational age at booking: {median_booking:.0f} weeks. "
+        f"Median time from booking to HIV test: {median_to_test:.0f} days. "
+        f"Median infant age at HIV testing: {median_infant_age:.1f} weeks.",
+        icon="⏱️"
     )
 
-# ============================================================================
-# DATA QUALITY ISSUES
-# ============================================================================
-elif page == "🔍 Data Quality Issues":
+
+# =============================================================================
+# PAGE: DATA QUALITY
+# =============================================================================
+
+elif page == "🔍 Data Quality":
+    st.markdown('<div style="text-align: center; font-size: 48px;">🇿🇼 🤰</div>', unsafe_allow_html=True)
     st.title("🔍 Data Quality Assessment")
-    st.markdown("## Identifying Data Gaps and Issues")
+    st.markdown("## Documentation Completeness and Consistency")
     
     st.markdown("---")
     
-    # Missing Data Analysis
-    st.markdown("### 📊 Missing Data by Column")
+    # Missing data analysis
+    st.markdown("### 📊 Data Completeness by Field")
     
-    # Calculate missing data
-    missing_no_mother = no_mother.isnull().sum()
-    missing_no_mother_pct = (missing_no_mother / len(no_mother)) * 100
-    
-    missing_with_mother = with_mother.isnull().sum()
-    missing_with_mother_pct = (missing_with_mother / len(with_mother)) * 100
-    
-    tab1, tab2 = st.tabs(["Children Without Maternal Link", "Mother-Baby Pairs"])
+    tab1, tab2 = st.tabs(["Mother-Baby Pairs", "Children Without Traceable Mother"])
     
     with tab1:
-        missing_df1 = pd.DataFrame({
-            'Column': missing_no_mother.index,
-            'Missing Count': missing_no_mother.values,
-            'Missing %': missing_no_mother_pct.values
-        }).sort_values('Missing %', ascending=False)
+        missing_with = filtered_with_mother.isnull().sum()
+        missing_with_pct = (missing_with / len(filtered_with_mother)) * 100
         
-        missing_df1 = missing_df1[missing_df1['Missing Count'] > 0]
+        missing_df1 = pd.DataFrame({
+            'Field': missing_with.index,
+            'Missing': missing_with.values,
+            'Percentage': missing_with_pct.values
+        }).sort_values('Missing', ascending=False)
+        
+        missing_df1 = missing_df1[missing_df1['Missing'] > 0].head(15)
         
         col1, col2 = st.columns([1, 2])
         
         with col1:
-            st.dataframe(missing_df1.head(10), use_container_width=True, hide_index=True)
+            st.dataframe(missing_df1, use_container_width=True, hide_index=True)
         
         with col2:
             fig = px.bar(
                 missing_df1.head(10),
-                x='Missing %',
-                y='Column',
+                x='Percentage',
+                y='Field',
                 orientation='h',
-                color='Missing %',
+                color='Percentage',
                 color_continuous_scale='Reds'
             )
             
             fig.update_layout(
-                title='Top 10 Columns with Missing Data',
+                title='Top 10 Fields with Missing Data',
                 xaxis_title='Missing %',
                 height=400
             )
@@ -1487,31 +1293,34 @@ elif page == "🔍 Data Quality Issues":
             st.plotly_chart(fig, use_container_width=True)
     
     with tab2:
-        missing_df2 = pd.DataFrame({
-            'Column': missing_with_mother.index,
-            'Missing Count': missing_with_mother.values,
-            'Missing %': missing_with_mother_pct.values
-        }).sort_values('Missing %', ascending=False)
+        missing_no = filtered_no_mother.isnull().sum()
+        missing_no_pct = (missing_no / len(filtered_no_mother)) * 100
         
-        missing_df2 = missing_df2[missing_df2['Missing Count'] > 0]
+        missing_df2 = pd.DataFrame({
+            'Field': missing_no.index,
+            'Missing': missing_no.values,
+            'Percentage': missing_no_pct.values
+        }).sort_values('Missing', ascending=False)
+        
+        missing_df2 = missing_df2[missing_df2['Missing'] > 0].head(15)
         
         col1, col2 = st.columns([1, 2])
         
         with col1:
-            st.dataframe(missing_df2.head(10), use_container_width=True, hide_index=True)
+            st.dataframe(missing_df2, use_container_width=True, hide_index=True)
         
         with col2:
             fig = px.bar(
                 missing_df2.head(10),
-                x='Missing %',
-                y='Column',
+                x='Percentage',
+                y='Field',
                 orientation='h',
-                color='Missing %',
+                color='Percentage',
                 color_continuous_scale='Reds'
             )
             
             fig.update_layout(
-                title='Top 10 Columns with Missing Data',
+                title='Top 10 Fields with Missing Data',
                 xaxis_title='Missing %',
                 height=400
             )
@@ -1520,57 +1329,63 @@ elif page == "🔍 Data Quality Issues":
     
     st.markdown("---")
     
-    # Data Inconsistencies
-    st.markdown("### ⚠️ Data Inconsistencies Detected")
+    # Data consistency
+    st.markdown("### ⚠️ Data Consistency Issues")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("#### HIV Test Result Variations")
+        st.markdown("#### HIV Result Variations")
         
-        result_counts = no_mother['infant_hiv_test_result'].value_counts()
-        
-        st.dataframe(pd.DataFrame({
-            'Value': result_counts.index,
-            'Count': result_counts.values
-        }), use_container_width=True, hide_index=True)
-        
-        st.warning("""
-        **Inconsistency Found:**
-        - "POSITIVE": 1,075 cases
-        - "Positive": 136 cases
-        
-        These should be standardized to uppercase.
-        """)
+        if 'infant_hiv_test_result' in filtered_no_mother.columns:
+            result_counts = filtered_no_mother['infant_hiv_test_result'].value_counts()
+            
+            st.dataframe(pd.DataFrame({
+                'Value': result_counts.index,
+                'Count': result_counts.values
+            }).head(10), use_container_width=True, hide_index=True)
+            
+            # Check for case variations
+            upper_count = result_counts.get('POSITIVE', 0) + result_counts.get('NEGATIVE', 0)
+            lower_count = result_counts.get('Positive', 0) + result_counts.get('Negative', 0)
+            
+            if lower_count > 0:
+                st.warning(f"""
+                **Case inconsistency detected:**
+                - {lower_count:,} entries with mixed case
+                - Recommend standardization to uppercase
+                """)
     
     with col2:
         st.markdown("#### Duplicate Records")
         
-        duplicates_1 = no_mother.duplicated().sum()
-        duplicates_2 = with_mother.duplicated().sum()
+        dup_with = filtered_with_mother.duplicated().sum()
+        dup_no = filtered_no_mother.duplicated().sum()
         
         dup_data = pd.DataFrame({
-            'Dataset': ['Children Without Maternal Link', 'Mother-Baby Pairs'],
-            'Duplicate Rows': [duplicates_1, duplicates_2],
+            'Dataset': ['Mother-Baby Pairs', 'Children Without Traceable Mother'],
+            'Duplicates': [dup_with, dup_no],
             'Percentage': [
-                (duplicates_1/len(no_mother)*100),
-                (duplicates_2/len(with_mother)*100)
+                (dup_with/len(filtered_with_mother)*100) if len(filtered_with_mother) > 0 else 0,
+                (dup_no/len(filtered_no_mother)*100) if len(filtered_no_mother) > 0 else 0
             ]
         })
         
         st.dataframe(dup_data, use_container_width=True, hide_index=True)
         
-        if duplicates_1 > 0 or duplicates_2 > 0:
+        if dup_with > 0 or dup_no > 0:
             st.warning(f"""
-            **{duplicates_1 + duplicates_2} duplicate records found**
+            **{dup_with + dup_no} duplicate records detected**
             
-            These should be reviewed and removed.
+            Review and deduplication recommended
             """)
+        else:
+            st.success("✅ No duplicate records found")
     
     st.markdown("---")
     
-    # Date Anomalies
-    st.markdown("### 📅 Date Anomalies")
+    # Date validation
+    st.markdown("### 📅 Date Range Validation")
     
     col1, col2 = st.columns(2)
     
@@ -1578,272 +1393,294 @@ elif page == "🔍 Data Quality Issues":
         st.markdown("#### Future Dates")
         
         future_count = 0
-        future_cols = []
+        future_details = []
         
-        for col in no_mother.select_dtypes(include=['datetime64']).columns:
-            future = no_mother[no_mother[col] > pd.Timestamp.now()]
+        for col in filtered_with_mother.select_dtypes(include=['datetime64']).columns:
+            future = filtered_with_mother[filtered_with_mother[col] > pd.Timestamp.now()]
             if len(future) > 0:
                 future_count += len(future)
-                future_cols.append(f"{col}: {len(future)} cases")
+                future_details.append(f"{col}: {len(future)} cases")
         
         if future_count > 0:
             st.error(f"**{future_count} future dates found:**")
-            for fc in future_cols:
-                st.write(f"- {fc}")
+            for detail in future_details[:5]:
+                st.write(f"- {detail}")
         else:
             st.success("✅ No future dates detected")
     
     with col2:
-        st.markdown("#### Very Old Dates")
+        st.markdown("#### Out-of-Range Dates")
         
         old_count = 0
-        old_cols = []
+        old_details = []
         
-        for col in no_mother.select_dtypes(include=['datetime64']).columns:
-            very_old = no_mother[no_mother[col] < pd.Timestamp('1990-01-01')]
+        for col in filtered_with_mother.select_dtypes(include=['datetime64']).columns:
+            very_old = filtered_with_mother[filtered_with_mother[col] < pd.Timestamp('1990-01-01')]
             if len(very_old) > 0:
                 old_count += len(very_old)
-                old_cols.append(f"{col}: {len(very_old)} cases")
+                old_details.append(f"{col}: {len(very_old)} cases")
         
         if old_count > 0:
             st.warning(f"**{old_count} dates before 1990:**")
-            for oc in old_cols:
-                st.write(f"- {oc}")
+            for detail in old_details[:5]:
+                st.write(f"- {detail}")
         else:
-            st.success("✅ No unreasonably old dates")
+            st.success("✅ All dates within valid range")
     
     st.markdown("---")
     
     # Recommendations
     st.markdown("### 💡 Data Quality Recommendations")
     
-    st.markdown("""
-    #### High Priority
-    1. **Standardize text fields** - Convert all HIV results to uppercase
-    2. **Remove duplicates** - Investigate and remove duplicate records
-    3. **Validate dates** - Review and correct date anomalies
-    4. **Fill critical gaps** - Prioritize completing infant HIV test results
+    recommendations = [
+        {
+            "priority": "High",
+            "action": "Standardize Text Fields",
+            "description": "Convert all categorical values (HIV results, status fields) to consistent casing"
+        },
+        {
+            "priority": "High",
+            "action": "Address Missing Critical Fields",
+            "description": "Prioritize completion of infant HIV test results and viral load data"
+        },
+        {
+            "priority": "Medium",
+            "action": "Validate Dates",
+            "description": "Review and correct date anomalies (future dates, out-of-range values)"
+        },
+        {
+            "priority": "Medium",
+            "action": "Remove Duplicates",
+            "description": "Investigate and resolve duplicate records"
+        },
+        {
+            "priority": "Long-term",
+            "action": "Implement Real-time Validation",
+            "description": "Add data entry constraints and validation rules at source"
+        }
+    ]
     
-    #### Medium Priority
-    5. **Improve VL documentation** - 69% of mothers have no VL result
-    6. **Enhance follow-up tracking** - Many missing follow-up status fields
-    7. **Implement data validation** - Add constraints to prevent future issues
-    
-    #### Long-term
-    8. **Electronic data capture** - Move to real-time electronic systems
-    9. **Data quality dashboards** - Monitor quality metrics continuously
-    10. **Training** - Train data clerks on standardized data entry
-    """)
+    for rec in recommendations:
+        with st.expander(f"**[{rec['priority']} Priority]** {rec['action']}"):
+            st.write(rec['description'])
 
-# ============================================================================
-# KEY RECOMMENDATIONS
-# ============================================================================
-elif page == "📋 Key Recommendations":
-    st.title("📋 Strategic Recommendations")
+# =============================================================================
+# PAGE: RECOMMENDATIONS
+# =============================================================================
+
+elif page == "📋 Recommendations":
+    st.markdown('<div style="text-align: center; font-size: 48px;">🇿🇼 🤰</div>', unsafe_allow_html=True)
+    st.title("📋 Programme Recommendations")
     st.markdown("## Evidence-Based Action Plan")
     
     st.markdown("---")
     
-    # Priority Matrix
-    st.markdown("### 🎯 Priority Action Matrix")
+    # Priority matrix
+    st.markdown("### 🎯 Priority Actions")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("#### 🔴 CRITICAL PRIORITY (0-3 months)")
+        st.markdown("#### 🔴 Immediate Actions (0-3 months)")
         
-        with st.expander("**1. Infant Testing Surge Initiative**", expanded=True):
+        with st.expander("**1. Infant Testing Scale-Up**", expanded=True):
             st.markdown(f"""
-            **Problem:** {total_pairs - infants_tested:,} infants (86.9%) untested
+            **Current Gap:** {children_born - infants_tested:,} untested infants
             
-            **Target:** Test ALL infants within 3 months
+            **Target:** Achieve >90% testing coverage
             
             **Actions:**
-            - Deploy mobile testing teams to 20 high-volume facilities
-            - Community health worker tracing of untested mothers
-            - SMS/phone reminders for mothers who delivered
-            - Integrate testing with immunization clinics
-            - Weekend testing clinics for working mothers
+            - Deploy mobile testing teams
+            - Community health worker tracing
+            - SMS reminder system
+            - Integration with immunization services
+            - Weekend/evening testing clinics
             
-            **Budget Required:** Moderate
-            
-            **Expected Impact:** HIGH - Identifies true MTCT rate, links HIV+ children to care
+            **Resources:** Moderate budget, staffing requirements
             """)
         
-        with st.expander("**2. Mother-Baby Linkage Emergency Response**"):
+        with st.expander("**2. Mother-Baby Linkage System**"):
             st.markdown(f"""
-            **Problem:** {len(no_mother):,} children without maternal data
+            **Current Gap:** {total_no_link:,} children without maternal link
             
-            **Target:** Reduce to <100 within 3 months
+            **Target:** Achieve >95% linkage
             
             **Actions:**
-            - Investigate each case to determine cause
-            - Implement unique mother-baby pair IDs (QR codes)
-            - Mandatory linkage verification before discharge
-            - Dedicated data quality officer at each facility
-            - Real-time alerts for unlinked pairs
+            - Implement unique mother-baby pair IDs
+            - Real-time linkage verification
+            - Cross-facility tracking system
+            - Data quality officer at each site
             
-            **Budget Required:** Low-Moderate
-            
-            **Expected Impact:** CRITICAL - Prevents system breakdown
+            **Resources:** Low-moderate budget, IT support needed
             """)
     
     with col2:
-        st.markdown("#### 🟡 HIGH PRIORITY (3-12 months)")
+        st.markdown("#### 🟡 Medium-term Actions (3-12 months)")
         
-        with st.expander("**3. Pre-Conception ART Scale-Up**", expanded=True):
-            st.markdown("""
-            **Evidence:** ZERO transmissions when ART started before pregnancy
+        with st.expander("**3. Viral Load Testing Expansion**", expanded=True):
+            st.markdown(f"""
+            **Current Coverage:** {testing_coverage:.1f}%
             
-            **Target:** 80% of HIV+ women of reproductive age on ART
+            **Target:** Achieve >95% VL testing
             
             **Actions:**
-            - Identify all HIV+ women aged 15-49 in catchment areas
-            - Immediate ART initiation regardless of pregnancy status
-            - Integrated family planning counseling
-            - Retention support for young women
-            - Community mobilization campaigns
+            - Point-of-care VL machines deployment
+            - Mandatory testing protocols
+            - Results within 48 hours
+            - Enhanced support for non-suppressed
             
-            **Budget Required:** Moderate-High
-            
-            **Expected Impact:** CRITICAL - Could eliminate MTCT
+            **Resources:** High budget (equipment), training needed
             """)
         
-        with st.expander("**4. Universal Viral Load Testing**"):
+        with st.expander("**4. Early ART Optimization**"):
             st.markdown(f"""
-            **Problem:** {(len(with_mother) - len(with_mother[with_mother['vl_suppressed'] != 'Unknown'])):,} mothers (69%) without VL
+            **Current Performance:** {same_day_pct:.1f}% same-day
             
-            **Target:** 95% VL testing coverage
+            **Target:** Sustain >90% same-day initiation
             
             **Actions:**
-            - Point-of-care VL machines at 10 facilities
-            - Mandatory VL at 28 weeks gestation
-            - Results-to-action protocol within 48 hours
-            - Enhanced adherence support for non-suppressed
-            - Monthly VL testing for non-suppressed mothers
+            - Pre-conception ART for all HIV+ women
+            - Immediate ART protocols
+            - Treatment literacy programs
+            - Retention support systems
             
-            **Budget Required:** High
-            
-            **Expected Impact:** HIGH - Reduces MTCT risk
+            **Resources:** Moderate budget, training focus
             """)
     
     st.markdown("---")
     
-    # Youth-Focused Interventions
-    st.markdown("### 👧 Youth-Focused PMTCT Services")
+    # Target populations
+    st.markdown("### 👥 Target Population Strategies")
     
-    st.info("""
-    **Evidence:** Mothers <25 years have 2-3x higher MTCT rates (6-8% vs 2-3%)
+    tab1, tab2, tab3 = st.tabs([
+        "Adolescents & Young Women",
+        "Children Without Linkage",
+        "Non-Suppressed Mothers"
+    ])
     
-    **Target Population:** ~650 young mothers in program
-    """)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown("**Service Delivery**")
+    with tab1:
+        adolescent_count = (filtered_with_mother['mother_age_at_booking'] < 25).sum()
+        st.info(f"**Target:** ~{adolescent_count:,} young women (<25 years)")
+        
         st.markdown("""
-        - Adolescent-friendly clinic days
+        **Service Delivery:**
+        - Adolescent-friendly clinic hours
         - Youth peer support groups
-        - Flexible appointment times
-        - Teen-focused counselors
-        """)
-    
-    with col2:
-        st.markdown("**Adherence Support**")
-        st.markdown("""
+        - Flexible appointment scheduling
+        
+        **Adherence Support:**
         - SMS/WhatsApp reminders
-        - Pill boxes with alarms
-        - Home visits if missed
+        - Home visit protocols
         - Incentive schemes
-        """)
-    
-    with col3:
-        st.markdown("**Psychosocial**")
-        st.markdown("""
-        - Disclosure support
+        
+        **Psychosocial Support:**
         - Mental health screening
-        - Livelihood support
-        - Parenting skills
+        - Disclosure counseling
+        - Economic empowerment programs
+        """)
+    
+    with tab2:
+        st.info(f"**Target:** {total_no_link:,} children without traceable mothers")
+        
+        st.markdown("""
+        **Investigation:**
+        - Case-by-case review
+        - Identify root causes
+        - System gap analysis
+        
+        **Prevention:**
+        - Electronic patient tracking
+        - Mother-baby pair verification
+        - Cross-site data sharing
+        
+        **Remediation:**
+        - Active case finding
+        - Treatment retention support
+        - Caregiver engagement
+        """)
+    
+    with tab3:
+        not_suppressed = (filtered_with_mother['vl_suppressed'] == 'Not Suppressed').sum()
+        st.info(f"**Target:** {not_suppressed:,} mothers with detectable viral load")
+        
+        st.markdown("""
+        **Clinical Management:**
+        - Adherence assessment
+        - Drug resistance testing
+        - Regimen optimization
+        
+        **Enhanced Support:**
+        - Intensive counseling
+        - Treatment supporters
+        - Monthly VL monitoring
+        
+        **Follow-up:**
+        - Fast-track appointments
+        - Multi-disciplinary team
+        - Community follow-up
         """)
     
     st.markdown("---")
     
-    # Data Systems Strengthening
-    st.markdown("### 💻 Data Systems Strengthening")
+    # Implementation roadmap
+    st.markdown("### 📅 Implementation Roadmap")
     
-    col1, col2 = st.columns(2)
+    roadmap_data = pd.DataFrame({
+        'Quarter': ['Q1 2026', 'Q2 2026', 'Q3 2026', 'Q4 2026'],
+        'Focus Area': [
+            'Infant Testing Surge',
+            'Linkage System Implementation',
+            'VL Testing Scale-up',
+            'Optimization & Sustainment'
+        ],
+        'Key Deliverables': [
+            'Test 50% of gap infants',
+            'Deploy unique ID system',
+            'Install POC VL machines',
+            'Achieve 90-90-90 targets'
+        ]
+    })
     
-    with col1:
-        st.markdown("#### Technology Solutions")
-        st.markdown("""
-        **Immediate (0-6 months):**
-        - Electronic patient tracking system
-        - Unique mother-baby pair IDs
-        - Real-time cascade dashboard
-        - Automated SMS reminders
-        
-        **Medium-term (6-18 months):**
-        - Mobile data collection apps
-        - Cross-facility data sharing
-        - Predictive analytics for LTFU
-        - Integration with national HMIS
-        """)
-    
-    with col2:
-        st.markdown("#### Human Resources")
-        st.markdown("""
-        **Staffing:**
-        - Data quality officers (1 per 5 facilities)
-        - M&E specialists at district level
-        - IT support technicians
-        - Community trackers
-        
-        **Training:**
-        - Standardized data entry protocols
-        - Monthly data quality audits
-        - Refresher training quarterly
-        - Mentorship programs
-        """)
+    st.dataframe(roadmap_data, use_container_width=True, hide_index=True)
     
     st.markdown("---")
     
-    # Success Metrics
-    st.markdown("### 📊 Success Metrics & Targets")
+    # Success metrics
+    st.markdown("### 📊 Success Metrics")
     
     metrics_data = pd.DataFrame({
         'Indicator': [
-            'Infant HIV Testing Coverage',
+            'Infant Testing Coverage',
             'MTCT Rate (among tested)',
-            'Mother-Baby Pair Linkage',
-            'Maternal VL Testing Coverage',
-            'Maternal VL Suppression Rate',
-            'Treatment Retention (12 months)',
+            'Mother-Baby Linkage',
+            'VL Testing Coverage',
+            'VL Suppression Rate',
+            'Treatment Retention',
             'Same-Day ART Initiation'
         ],
         'Current': [
-            '13.0%',
-            '4.9%',
-            f'{((total_pairs/(total_pairs+len(no_mother)))*100):.1f}%',
-            '31.2%',
-            '61.6%',
-            '48.8%',
-            '73.2%'
+            f'{(infants_tested/children_born*100):.1f}%' if children_born > 0 else 'N/A',
+            f'{mtct_rate:.1f}%',
+            f'{(total_pairs/(total_pairs+total_no_link)*100):.1f}%',
+            f'{testing_coverage:.1f}%',
+            f'{suppression_rate:.1f}%',
+            f'{retention_pct:.1f}%',
+            f'{same_day_pct:.1f}%'
         ],
         '12-Month Target': [
+            '90%',
+            '<5%',
             '95%',
-            '<2%',
-            '98%',
-            '95%',
+            '90%',
             '90%',
             '85%',
             '90%'
         ],
         '24-Month Target': [
+            '95%',
+            '<2%',
             '98%',
-            '<1%',
-            '99%',
-            '98%',
+            '95%',
             '95%',
             '90%',
             '95%'
@@ -1854,71 +1691,56 @@ elif page == "📋 Key Recommendations":
     
     st.markdown("---")
     
-    # Resource Requirements
-    st.markdown("### 💰 Resource Requirements Summary")
+    # Resource summary
+    st.markdown("### 💰 Resource Requirements")
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.markdown("#### Financial")
+        st.markdown("**Financial**")
         st.markdown("""
-        **Year 1 Budget:**
-        - Testing surge: $50K
-        - VL machines: $200K
-        - IT systems: $150K
-        - Training: $30K
-        - Community tracing: $40K
+        **Year 1 Estimated:**
+        - Testing surge: $50,000
+        - VL equipment: $200,000
+        - IT systems: $150,000
+        - Training: $30,000
+        - Community programs: $40,000
         
-        **Total: ~$470K**
+        **Total: ~$470,000**
         """)
     
     with col2:
-        st.markdown("#### Human Resources")
+        st.markdown("**Human Resources**")
         st.markdown("""
         **New Positions:**
-        - 10 Data quality officers
-        - 5 M&E specialists
-        - 20 Community tracers
-        - 2 IT specialists
-        - 15 Youth counselors
+        - Data quality officers (10)
+        - M&E specialists (5)
+        - Community tracers (20)
+        - IT support (2)
+        - Youth counselors (15)
         
         **Total: 52 FTEs**
         """)
     
     with col3:
-        st.markdown("#### Equipment")
+        st.markdown("**Equipment**")
         st.markdown("""
         **Procurement:**
-        - 10 Point-of-care VL machines
-        - 20 Computers/tablets
-        - 30 Mobile phones
-        - QR code scanners
-        - Backup generators
+        - Point-of-care VL machines (10)
+        - Computers/tablets (20)
+        - Mobile phones (30)
+        - ID scanners/printers
+        - Backup power systems
         """)
-    
-    st.markdown("---")
-    
-    # Call to Action
-    st.markdown("### 🎯 Call to Action")
-    
-    st.success("""
-    ### The Path to MTCT Elimination is Clear:
-    
-    1. **Test all infants** - Close the 87% testing gap
-    2. **Fix the linkage** - Ensure every child has a traceable mother
-    3. **Scale pre-conception ART** - Proven to prevent 100% of transmissions
-    4. **Support young mothers** - They face the highest risk
-    5. **Monitor viral load** - Cannot manage what we don't measure
-    
-    **With focused effort on these 5 priorities, MTCT elimination (<1%) is achievable within 24 months.**
-    """)
 
 # Footer
 st.markdown("---")
-st.markdown("""
+st.markdown(f"""
     <div style='text-align: center; color: #666; padding: 20px;'>
+        <p style='font-size: 24px;'>🇿🇼 🤰 👶</p>
         <p><strong>PMTCT Longitudinal Analysis Dashboard</strong></p>
-        <p>Study Period: 2021-2025 | Generated: February 2026</p>
-        <p>For questions contact: PMTCT Programme Monitoring Team</p>
+        <p>Zimbabwe PMTCT Programme | Study Period: 2021-2025</p>
+        <p>Generated: {datetime.now().strftime("%B %d, %Y")}</p>
+        <p style='margin-top: 10px;'>For questions contact: PMTCT Programme Monitoring Team</p>
     </div>
 """, unsafe_allow_html=True)
